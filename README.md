@@ -468,9 +468,9 @@ Next, we need to execute following steps:
 * Install [NICE DCV client](https://docs.aws.amazon.com/dcv/latest/userguide/client.html) on your laptop and use the DCV client to login to the graphics desktop instance as user ```ubuntu```. Use the password for user ```ubuntu``` that you created above.
 
 * On the graphics desktop, use the terminal to start ```rviz``` and set ```./a2d2/config/a2d2.rviz``` as the ```rviz``` config file. 
-* Create a client configuration file starting as described below:
+* From the directory containing this repository, execute the command below:
 
-		cp /a2d2/config/c-config-ex1.json /tmp/c-config.json
+		cp ./a2d2/config/c-config-ex1.json /tmp/c-config.json
   
   Edit the ```servers``` in ```/tmp/c-config.json``` file to the Amazon MSK plaintext endpoint. This should be the same endpoint you used to configure your data service above. Set ```requests.preview``` to ```false``` if you want to see complete data.
 * Run A2D2 data service client using the command:
