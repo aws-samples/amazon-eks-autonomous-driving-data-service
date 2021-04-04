@@ -14,6 +14,8 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 CLUSTER_NAME=
 BUCKET_NAME=
 if [ "$#" -eq 2 ]; then
@@ -24,7 +26,7 @@ else
     exit 1
 fi
 
-
+DATE=$(date +%s%N)
 ISSUER_URL=$(aws eks describe-cluster \
                        --name $CLUSTER_NAME \
                        --query cluster.identity.oidc.issuer \
@@ -35,7 +37,7 @@ ISSUER_HOSTPATH=$(echo $ISSUER_URL | cut -f 3- -d'/')
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 PROVIDER_ARN="arn:aws:iam::$ACCOUNT_ID:oidc-provider/$ISSUER_HOSTPATH"
 
-ROLE_NAME="eks-sa-${CLUSTER_NAME}-${BUCKET_NAME}-role"
+ROLE_NAME="eks-sa-mozart-${DATE}-role"
 cat > /tmp/$ROLE_NAME-trust-policy.json << EOF
 {
   "Version": "2012-10-17",
@@ -78,7 +80,6 @@ cat > /tmp/${POLICY_NAME}.json << EOF
 }
 EOF
 
-
 aws iam create-policy \
 	--policy-name ${POLICY_NAME} \
 	--policy-document file:///tmp/${POLICY_NAME}.json \
@@ -93,3 +94,18 @@ aws iam create-role \
 aws iam attach-role-policy --role-name ${ROLE_NAME} \
 	  --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}" \
 	  --output text
+
+role_arn=$(aws iam list-roles | grep Arn | grep $ROLE_NAME | awk -F " " '{print $2}' | sed -e s"/,//g" -e s"/\"//g" )
+
+echo "Updating EKS Pod Role Arn: $role_arn"
+
+echo "Updating $scripts_dir/../a2d2/fsx/stage-data-a2d2.yaml"
+sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${role_arn}|g" \
+	-e "s|value:[[:blank:]]\+$|value: ${BUCKET_NAME}|g"   $scripts_dir/../a2d2/fsx/stage-data-a2d2.yaml
+
+echo "Updating $scripts_dir/../a2d2/efs/stage-data-a2d2.yaml"
+sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${role_arn}|g" \
+	-e "s|value:[[:blank:]]\+$|value: ${BUCKET_NAME}|g" $scripts_dir/../a2d2/efs/stage-data-a2d2.yaml
+
+echo "Updating $scripts_dir/../a2d2/charts/a2d2-data-service/values.yaml"
+sed -i -e "s|roleArn:.*|roleArn: ${role_arn}|g" $scripts_dir/../a2d2/charts/a2d2-data-service/values.yaml
