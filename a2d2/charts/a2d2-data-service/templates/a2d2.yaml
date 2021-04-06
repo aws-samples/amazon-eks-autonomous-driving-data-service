@@ -8,7 +8,7 @@ metadata:
   namespace: {{ .Values.global.namespace }}
 ---
 apiVersion: v1
-kind: ConfigMap
+kind: Secret
 metadata:
   namespace: {{ .Values.global.namespace }}
   name: {{ .Values.a2d2.name }}
@@ -16,7 +16,8 @@ metadata:
     app.kubernetes.io/name: {{ .Values.a2d2.name }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-data:
+type: Opaque
+stringData:
   config: |
     {{ toJson .Values.configMap }}
 ---
@@ -40,8 +41,8 @@ spec:
       serviceAccountName: {{ .Values.a2d2.serviceAccount.name }}
       volumes:
       - name: config
-        configMap:
-          name: {{ .Values.a2d2.name }}
+        secret:
+          secretName: {{ .Values.a2d2.name }}
           items:
           - key: config
             mode: 400
