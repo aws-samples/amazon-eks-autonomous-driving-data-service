@@ -14,32 +14,15 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-# set s3 bucket name
-[[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name env variable is required" && exit 1
-echo "S3 Bucket Name: $s3_bucket_name"
+scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-dst_bucket=$s3_bucket_name
-
-date
-a2d2_bucket=aev-autonomous-driving-dataset
-dst_bucket_prefix=a2d2
-files=$(aws s3 ls s3://$a2d2_bucket/ | awk '{ print $4 }')
-for filename in $files
-do
-  echo "Downloading: $filename"
-  aws s3 cp --quiet s3://$a2d2_bucket/$filename $filename 
-  extension="${filename##*.}"  
-  if [ "$extension" == "tar" ]
-  then
-	  rm -rf /tmp/$filename
-	  mkdir /tmp/$filename
-	  echo "Extracting:$filename"
-	  tar -C /tmp/$filename -xf $filename
-  	  aws s3 cp --quiet --recursive /tmp/$filename s3://$dst_bucket/$dst_bucket_prefix/
-	  rm -rf /tmp/$filename
-  else
-	  aws s3 cp --quiet $filename s3://$dst_bucket/$dst_bucket_prefix/$filename
-  fi
-  rm $filename
-done
-date
+if [[ $ROS_DISTRO == 'melodic' ]]
+then
+    cd $scripts_dir/../a2d2 && ./build_tools/build_and_push.sh melodic-bionic
+elif [[ $ROS_DISTRO == 'noetic' ]]
+then
+    cd $scripts_dir/../a2d2 && ./build_tools/build_and_push.sh noetic-focal
+else
+    echo "Unsupported ROS distro: $ROS_DISTRO : Must be 'melodic' or 'noetic' "
+    exit 1
+fi

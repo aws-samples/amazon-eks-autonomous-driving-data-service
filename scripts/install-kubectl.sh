@@ -30,7 +30,7 @@ else
 fi
 
 # Set to kubectl version for your EKS cluster
-KubectlVersion="1.16.12/2020-07-08"
+KubectlVersion="1.19.6/2021-01-05"
 echo "Using kubectl version: $KubectlVersion; change kubectl version if incompatible with your EKS cluster"
 
 sudo mkdir -p /usr/local/bin

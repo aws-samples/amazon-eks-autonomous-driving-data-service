@@ -1,85 +1,103 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Creates VPC and subnets for Mozart deployment.
+  Mozart data service stack. The stack name is implicitly used as the name of the 
+  EKS cluster and the MSK cluster created by the stack.
 Parameters:
   S3Bucket:
-    Description: S3 bucket name e.g. my-bucket must be 3 to 63 characters
+    Description: S3 bucket name, which must be 3 to 63 characters long
     Type: String
     AllowedPattern: '[a-zA-Z0-9][a-zA-Z0-9-\.]{2,62}'
+
   RemoteAccessCIDR:
     Description: Remote access CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   VpcCIDR:
     Default: 172.30.0.0/16
-    Description: Vpc CIDR
+    Description: Vpc CIDR. Advanced option.
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   PublicSubnet1CIDR:
     Default: 172.30.0.0/24
-    Description: Public Subnet1 CIDR in Vpc CIDR
+    Description: Public Subnet1 CIDR inside Vpc CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   PublicSubnet2CIDR:
     Default: 172.30.1.0/24
-    Description: Public Subnet2 CIDR in Vpc CIDR
+    Description: Public Subnet2 CIDR inside Vpc CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   PublicSubnet3CIDR:
     Default: 172.30.2.0/24
-    Description: Public Subnet3 CIDR in Vpc CIDR
+    Description: Public Subnet3 CIDR inside Vpc CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   PrivateSubnet1CIDR:
     Default: 172.30.64.0/18
-    Description: Private Subnet1 CIDR in Vpc CIDR
+    Description: Private Subnet1 CIDR inside Vpc CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   PrivateSubnet2CIDR:
     Default: 172.30.128.0/18
-    Description: Private Subnet2 CIDR in Vpc CIDR
+    Description: Private Subnet2 CIDR inside Vpc CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   PrivateSubnet3CIDR:
     Default: 172.30.192.0/18
-    Description: Private Subnet2 CIDR in Vpc CIDR
+    Description: Private Subnet2 CIDR inside Vpc CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
+
   RedshiftDatabaseName:
-    Description: The name of the first database to be created when the cluster is
-      created
+    Description: Redshift database name
     Type: String
     Default: mozart
     AllowedPattern: "([a-z]|[0-9])+"
+
   RedshiftNumberOfNodes:
     Description: The number of compute nodes in the Redshift cluster, must be >= 2
     Type: Number
     Default: 3
     MinValue: 3
+
   RedshiftNodeType:
     Description: The type of node to be provisioned for Redshift cluster
     Type: String
-    Default: dc2.8xlarge
+    Default: ra3.4xlarge
     AllowedValues:
+    - ra3.xlplus
+    - ra3.4xlarge
+    - ra3.16xlarge
     - ds2.xlarge
     - ds2.8xlarge
     - dc2.large
     - dc2.8xlarge
+
   RedshiftMasterUsername:
     Description: The user name that is associated with the master user account for
       the Redshift cluster that is being created
     Type: String
     Default: admin 
     AllowedPattern: "([a-z])([a-z]|[0-9])*"
+
   RedshiftMasterUserPassword: 
     AllowedPattern: "(?=^.{8,}$)(?=.*\\d)(?=.*[A-Z])(?=.*[a-z]).*$"
-    Description: "Resdhift master user account: Atleast 8, lower and upper case and digits."
+    Description: "Resdhift master password: Atleast length 8, lower case, upper case and digits."
     NoEcho: "true"
     Type: String
+
   RedshiftPortNumber:
     Description: The port number on which the Redshift cluster accepts incoming connections.
     Type: Number
     Default: 5439
+
   MSKBrokerNodeType:
     Description: The type of node to be provisioned for MSK Broker
     Type: String
@@ -89,10 +107,6 @@ Parameters:
     - kafka.m5.xlarge
     - kafka.m5.2xlarge
     - kafka.m5.4xlarge
-  MSKClusterName:
-    Description: The name of MSK cluster
-    Type: String
-    Default: "mozart"
     
   MSKNumberOfNodes:
     Description: The number of MSK Broker nodes, must be >= 2
@@ -117,25 +131,24 @@ Parameters:
     Type: String
     AllowedValues: [Enabled, Disabled]
     Default: Enabled
+
   EKSEncryptSecretsKmsKeyArn:
     Description: Encrypt EKS Secrets Key ARN (Leave blank to create)
     Type: String
     Default: ""
+
   KubernetesVersion:
     Description: Kubernetes Version
     Type: String
-    AllowedValues: [ "1.18", "1.17" ]
-    Default: "1.18"
-  EKSClusterName:
-    Description: The name of EKS cluster
-    Type: String
-    Default: "mozart"
-  
-  EKSNodeGroupPrivateName:
-    Description: The name of EKS cluster private node group
-    Type: String
-    Default: "nodegroup-pvt"
+    AllowedValues: [ "1.19", "1.18" ]
+    Default: "1.19"
 
+  KubectlVersion:
+    Description: Kubectl Version
+    Type: String
+    AllowedValues: [ "1.19.6/2021-01-05", "1.18.9/2020-11-02" ]
+    Default: "1.19.6/2021-01-05"
+  
   EKSNodeVolumeSizeGiB:
     Description: EKS Node volume size GiB
     Type: Number
@@ -175,21 +188,145 @@ Parameters:
     - r5n.12xlarge
     - r5n.16xlarge
     - r5n.24xlarge
+  
+  UbuntuAMI:
+    Description: >-
+      Advanced option to override Ubuntu AMI ((18.04, or 20.04). 
+      ROS  'melodic' requires 18.04, and noetic requires 20.04.
+    Type: String
+    AllowedPattern: '(ami-[0-9a-z]{17})?'
+
+  DesktopInstanceType:
+    Description: >-
+     EC2 instance type for desktop.
+    Type: String
+    Default: g3s.xlarge
+    AllowedValues:
+      - m5d.2xlarge
+      - m5d.4xlarge
+      - m5d.8xlarge
+      - m5d.12xlarge
+      - m5d.16xlarge
+      - m5d.24xlarge
+      - c5d.2xlarge
+      - c5d.4xlarge
+      - c5d.9xlarge
+      - c5d.12xlarge
+      - c5d.18xlarge
+      - c5d.24xlarge
+      - r5d.2xlarge
+      - r5d.4xlarge
+      - r5d.8xlarge
+      - r5d.12xlarge
+      - r5d.16xlarge
+      - r5d.24xlarge
+      - g3s.xlarge
+      - g3.4xlarge
+      - g3.8xlarge
+      - g3.16xlarge
+      - g4dn.xlarge
+      - g4dn.2xlarge
+      - g4dn.4xlarge
+      - g4dn.8xlarge
+      - g4dn.12xlarge
+      - g4dn.16xlarge
+      - p3.2xlarge
+      - p3.8xlarge
+      - p3.16xlarge
+      - p3dn.24xlarge
+      - p4d.24xlarge
+     
+    ConstraintDescription: Must be a valid CPU, or GPU EC2 instance type.
+  
+  DesktopEbsVolumeSize:
+    Description: Desktop EBS volume size (GiB) 
+    Type: Number
+    MinValue: 500
+    Default: 500
+
+  DesktopEbsVolumeType:
+    Default: 'gp3'
+    Description: Desktop EBS volume type
+    Type: String
+    AllowedValues:
+      - 'gp2'
+      - 'gp3'
 
   KeyPairName:
     Description: EC2 SSH KeyPair Name
     Type: 'AWS::EC2::KeyPair::KeyName'
+    AllowedPattern: '^[\x00-\x7F]{1,255}[^.\s]$'
 
-  DesktopS3DeletePrefix:
-    Description: S3 prefix in bucket for desktop role delete permission
+  DesktopHasPublicIpAddress:
+    Description: Should a Public Ip Address be associated with the Desktop?
     Type: String
-    Default: 'rosbag'
-  
+    Default: "true"
+    AllowedValues:
+     - "true"
+     - "false"
+
+  RosVersion:
+    Description: >-
+     ROS version. 
+    Type: String
+    Default: "melodic"
+    AllowedValues:
+     - "melodic"
+     - "noetic"
+
 Conditions:
   CreateEksKey: !And
     - !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
     - !Equals [ !Ref EKSEncryptSecrets, Enabled ]
   EnableEksEncryption: !Equals [ !Ref EKSEncryptSecrets, Enabled ]
+  OverrideAMI: !Not 
+    - !Equals 
+      - !Ref UbuntuAMI
+      - ''
+
+Mappings:
+  melodic:
+    us-east-1:
+      AMI: ami-03d8a161615ac7d55
+    us-east-2:
+      AMI: ami-0d0d2a9fd219d2622 
+    us-west-2:
+      AMI: ami-072b79acdd5205940 
+    eu-west-1:
+      AMI: ami-0fa09d3c24762fe09 
+    eu-central-1:
+      AMI: ami-0e2a78dd4da2513fd 
+    ap-southeast-1:
+      AMI: ami-004477fff324e5301 
+    ap-southeast-2:
+      AMI: ami-0e1e19b68e46dbe21 
+    ap-south-1:
+      AMI: ami-0133460e8c70238ac 
+    ap-northeast-1:
+      AMI: ami-04de157b8eebcb16d 
+    ap-northeast-2:
+      AMI: ami-03de23f1474726612
+  noetic:
+    us-east-1:
+      AMI: ami-0ed28656d62ce20d6
+    us-east-2:
+      AMI: ami-099fb390d2aabb6ca 
+    us-west-2:
+      AMI: ami-063b8d05214908f17 
+    eu-west-1:
+      AMI: ami-0c4f28e9b2175e21e 
+    eu-central-1:
+      AMI: ami-0aca1f72de611d1ba 
+    ap-southeast-1:
+      AMI: ami-02a7bcf4bae8400e2 
+    ap-southeast-2:
+      AMI: ami-0c257005b1b91773a 
+    ap-south-1:
+      AMI: ami-013579e334aa8107c 
+    ap-northeast-1:
+      AMI: ami-0813873264a43a438 
+    ap-northeast-2:
+      AMI: ami-04ec56d6e751de72b
 
 Resources:
   Vpc:
@@ -231,7 +368,7 @@ Resources:
           Value: !Ref 'AWS::StackName'
         - Key: 'kubernetes.io/role/elb'
           Value: '1'
-        - Key: !Sub 'kubernetes.io/cluster/${EKSClusterName}'
+        - Key: !Sub 'kubernetes.io/cluster/${AWS::StackName}'
           Value: 'shared'
   PublicSubnet2:
     Type: 'AWS::EC2::Subnet'
@@ -250,7 +387,7 @@ Resources:
           Value: !Ref 'AWS::StackName'
         - Key: 'kubernetes.io/role/elb'
           Value: '1'
-        - Key: !Sub 'kubernetes.io/cluster/${EKSClusterName}'
+        - Key: !Sub 'kubernetes.io/cluster/${AWS::StackName}'
           Value: 'shared'
   PublicSubnet3:
     Type: 'AWS::EC2::Subnet'
@@ -269,7 +406,7 @@ Resources:
           Value: !Ref 'AWS::StackName'
         - Key: 'kubernetes.io/role/elb'
           Value: '1'
-        - Key: !Sub 'kubernetes.io/cluster/${EKSClusterName}'
+        - Key: !Sub 'kubernetes.io/cluster/${AWS::StackName}'
           Value: 'shared'
   PrivateSubnet1:
     Type: 'AWS::EC2::Subnet'
@@ -287,7 +424,7 @@ Resources:
           Value: !Ref 'AWS::StackName'
         - Key: 'kubernetes.io/role/internal-elb'
           Value: '1'
-        - Key: !Sub 'kubernetes.io/cluster/${EKSClusterName}'
+        - Key: !Sub 'kubernetes.io/cluster/${AWS::StackName}'
           Value: 'shared'
   PrivateSubnet2:
     Type: 'AWS::EC2::Subnet'
@@ -305,7 +442,7 @@ Resources:
           Value: !Ref 'AWS::StackName'
         - Key: 'kubernetes.io/role/internal-elb'
           Value: '1'
-        - Key: !Sub 'kubernetes.io/cluster/${EKSClusterName}'
+        - Key: !Sub 'kubernetes.io/cluster/${AWS::StackName}'
           Value: 'shared'
   PrivateSubnet3:
     Type: 'AWS::EC2::Subnet'
@@ -323,7 +460,7 @@ Resources:
           Value: !Ref 'AWS::StackName'
         - Key: 'kubernetes.io/role/internal-elb'
           Value: '1'
-        - Key: !Sub 'kubernetes.io/cluster/${EKSClusterName}'
+        - Key: !Sub 'kubernetes.io/cluster/${AWS::StackName}'
           Value: 'shared'
   NATGatewayEIP:
     Type: 'AWS::EC2::EIP'
@@ -650,7 +787,7 @@ Resources:
     Type: 'AWS::MSK::Cluster'
     DependsOn: [PrivateSubnet1RouteAssociation, PrivateSubnet2RouteAssociation, PrivateSubnet3RouteAssociation]
     Properties:
-      ClusterName: !Ref MSKClusterName
+      ClusterName: !Sub '${AWS::StackName}'
       KafkaVersion: 2.2.1
       NumberOfBrokerNodes: !Ref MSKNumberOfNodes
       EncryptionInfo:
@@ -745,9 +882,9 @@ Resources:
 
   EksControlPlane:
     Type: "AWS::EKS::Cluster"
-    DependsOn: [MSKCluster, RedshiftCluster]
+    DependsOn: [PrivateSubnet1RouteAssociation, PrivateSubnet2RouteAssociation, PrivateSubnet3RouteAssociation]
     Properties:
-      Name: !Ref EKSClusterName
+      Name: !Ref AWS::StackName
       ResourcesVpcConfig:
         SecurityGroupIds: 
         - !GetAtt VpcSecurityGroup.GroupId
@@ -832,7 +969,7 @@ Resources:
       DiskSize: !Ref EKSNodeVolumeSizeGiB
       InstanceTypes: 
       - !Ref EKSNodeGroupInstanceType
-      NodegroupName: !Ref EKSNodeGroupPrivateName
+      NodegroupName: 'private-nodegroup'
       NodeRole: !GetAtt EksNodeRole.Arn
       RemoteAccess:
         Ec2SshKey: !Ref KeyPairName
@@ -849,7 +986,7 @@ Resources:
 
   FSxFileSystem:
     Type: AWS::FSx::FileSystem
-    DependsOn: [EKSNodeGroupPrivate]
+    DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngress ]
     Properties: 
       FileSystemType: 'LUSTRE'
       LustreConfiguration: 
@@ -865,9 +1002,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref 'AWS::StackName'
+
   EFSFileSystem:
     Type: 'AWS::EFS::FileSystem'
-    DependsOn: [EKSNodeGroupPrivate]
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -901,6 +1038,34 @@ Resources:
       SecurityGroups:
         - !Ref VpcSecurityGroup
 
+  GlueJobRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - glue.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - "s3:Get*"
+                  - "s3:List*"
+                  - "s3:PutObject*"
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3Bucket}'
+                  - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+          PolicyName: 'GlueJobRoleS3Policy'
+    
   DesktopRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -909,29 +1074,95 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Service: ec2.amazonaws.com
+              Service: 
+                - ec2.amazonaws.com
+                - sagemaker.amazonaws.com
             Action: 
               - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonFSxReadOnlyAccess"
       Policies:
+        - PolicyName: desktop-cloudformation-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:DescribeStacks'
+                Resource: 
+                  - !Sub 'arn:aws:cloudformation:::stack/${AWS::StackName}/*'
+
+        - PolicyName: desktop-fsx-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'fsx:DescribeFileSystems'
+                Resource:
+                  - !Sub 'arn:aws:fsx:::file-system/${FSxFileSystem}'
+
+        - PolicyName: desktop-kafka-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                - "kafka:Describe*"
+                - "kafka:Get*"
+                - "kafka:List*"
+                - "kafka:UpdateClusterConfiguration"
+                - "kafka:CreateConfiguration"
+                Resource: "*"
+        
+        - PolicyName: desktop-ecr-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ecr:GetAuthorizationToken"
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "ecr:GetRepositoryPolicy"
+                  - "ecr:DescribeRepositories"
+                  - "ecr:ListImages"
+                  - "ecr:DescribeImages"
+                  - "ecr:BatchGetImage"
+                  - "ecr:InitiateLayerUpload"
+                  - "ecr:UploadLayerPart"
+                  - "ecr:CompleteLayerUpload"
+                  - "ecr:PutImage"
+                  - "ecr:CreateRepository"
+                Resource: "*"
+                
+        - PolicyName: desktop-dcv-license-s3
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource: 
+                  - !Sub 'arn:aws:s3:::dcv-license.${AWS::Region}/*'
+
         - PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action: 
-                  - "s3:List*"
                   - "s3:Get*"
+                  - "s3:List*"
+                  - "s3:PutObject*"
+                  - "s3:DeleteObject*"
                 Resource: 
                   - !Sub 'arn:aws:s3:::${S3Bucket}'
                   - !Sub 'arn:aws:s3:::${S3Bucket}/*'
               - Effect: Allow
-                Action:
-                  - "s3:DeleteObject*"
-                Resource:
-                  - !Sub 'arn:aws:s3:::${S3Bucket}/${DesktopS3DeletePrefix}/*'
+                Action: 
+                  - "s3:Get*"
+                  - "s3:List*"
+                Resource: 
+                  - 'arn:aws:s3:::aev-autonomous-driving-dataset'
+                  - 'arn:aws:s3:::aev-autonomous-driving-dataset/*'
           PolicyName: 'DesktopS3Policy'
-      ManagedPolicyArns:
-        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonFSxReadOnlyAccess"
-      Path: /
 
   DesktopInstanceProfile: 
     Type: "AWS::IAM::InstanceProfile"
@@ -939,6 +1170,545 @@ Resources:
       Path: "/"
       Roles: 
         - Ref: "DesktopRole"
+  
+  DesktopInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !If 
+        - OverrideAMI
+        - !Ref UbuntuAMI
+        - !FindInMap 
+          - !Ref RosVersion
+          - !Ref 'AWS::Region'
+          - AMI
+      InstanceType: !Ref DesktopInstanceType
+      EbsOptimized: true
+      IamInstanceProfile: !Ref DesktopInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: !Ref DesktopEbsVolumeSize
+            VolumeType: !Ref DesktopEbsVolumeType
+            Encrypted: true
+            DeleteOnTermination: true
+      NetworkInterfaces: 
+      - AssociatePublicIpAddress: !Ref DesktopHasPublicIpAddress
+        DeviceIndex: "0"
+        GroupSet: 
+          - !Ref DesktopSecurityGroup
+        SubnetId: !Ref PublicSubnet1
+    
+      KeyName: !Ref KeyPairName
+      Tags: 
+        - Key: "Name"
+          Value: !Sub '${AWS::StackName}-desktop'
+
+      UserData: !Base64 
+        'Fn::Join':
+          - ''
+          - - |
+              Content-Type: multipart/mixed; boundary="//"
+              MIME-Version: 1.0
+
+              --//
+              Content-Type: text/cloud-config; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="cloud-config.txt"
+
+              #cloud-config
+              cloud_final_modules:
+              - [scripts-user, always]
+
+              --//
+              Content-Type: text/x-shellscript; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="userdata.txt"
+
+              #!/bin/bash -xe
+
+              if [[ -f "/etc/systemd/system/dcvsession.service" ]]
+              then
+                apt install -y lustre-client-modules-$(uname -r)
+                /usr/local/bin/mount-efs-fsx.sh
+                exit 0
+              fi
+
+              echo "Cloud init in progress. Machine will REBOOT after cloud init is complete!!" > /etc/motd
+             
+              # Find Ubuntu Version 
+              VERSION=$(lsb_release -a | grep Release | awk -F ":" '{print $2}' | sed -E -e 's/[[:blank:]]+//g')
+              echo "Detected Ubuntu $VERSION"
+
+              # setup graphics desktop
+              export DEBIAN_FRONTEND=noninteractive
+              export DEBCONF_NONINTERACTIVE_SEEN=true
+
+              # setup software repo for docker
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+              apt-key fingerprint 0EBFCD88
+              add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+   
+              # setup software repo for fsx-lustre client
+              wget -O - https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-ubuntu-public-key.asc | apt-key add -
+              bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu bionic main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list'
+
+              # add key for NICE-DCV
+              wget https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY
+              gpg --import NICE-GPG-KEY
+
+              # setup software repo for ros
+              sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
+              apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
+
+              # update and install required packages
+              apt update
+
+              # check if we need NVIDIA drivers and if they are installed
+              apt -y install ubuntu-drivers-common
+              NVIDIA_DRIVER=$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')
+              if [[ $NVIDIA_DRIVER != "" && ! -x "$(command -v nvidia-smi)" ]]
+              then
+                echo "Auto install NVIDIA GPU drivers"
+                ubuntu-drivers autoinstall
+                reboot
+              fi
+
+              apt install -y git tar
+              apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+              
+              # install docker if it is not installed
+              if [ ! -x "$(command -v docker)" ]; then
+                apt install -y docker-ce docker-ce-cli containerd.io      
+                usermod -aG docker ubuntu
+              fi
+
+              apt install -y tzdata
+              apt install -y keyboard-configuration
+              apt install -y gnupg2
+              apt install -y lsb-core 
+
+              # install DCV server
+              echo "install DCV server..."
+              apt install -y ubuntu-desktop
+
+              if [[ $VERSION == "18.04" ]]
+              then
+                apt install -y lightdm
+                apt -y upgrade
+                echo "/usr/sbin/lightdm" > /etc/X11/default-display-manager
+                dpkg-reconfigure lightdm
+
+                apt install -y mesa-utils
+                if [ -x "$(command -v nvidia-xconfig)" ]; then
+                  nvidia-xconfig --preserve-busid --enable-all-gpus
+                fi
+
+                #restart X server
+                echo "restart X-server"
+                systemctl set-default graphical.target
+                systemctl isolate graphical.target
+
+                wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu1804-x86_64.tgz
+                tar -xvzf nice-dcv-2020.2-9662-ubuntu1804-x86_64.tgz 
+                cd nice-dcv-2020.2-9662-ubuntu1804-x86_64
+                apt install -y  ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu1804.deb
+              elif [[ $VERSION == "20.04" ]]
+              then
+                apt install -y gdm3
+                apt -y upgrade
+                echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
+                dpkg-reconfigure gdm3
+                sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
+                systemctl restart gdm3
+
+                apt install -y mesa-utils
+                if [ -x "$(command -v nvidia-xconfig)" ]; then
+                  nvidia-xconfig --preserve-busid --enable-all-gpus
+                fi
+
+                #restart X server
+                echo "restart X-server"
+                systemctl set-default graphical.target
+                systemctl isolate graphical.target
+
+                wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
+                tar -xvzf nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
+                cd nice-dcv-2020.2-9662-ubuntu2004-x86_64
+                apt install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+              else
+                echo "Ubuntu $VERSION is not supported; must be one of 18.04, or 20.04"
+                exit 1
+              fi
+
+              #restart X server
+              systemctl set-default graphical.target
+              systemctl isolate graphical.target
+
+              # Create DCV server configuration file
+              mkdir  /opt/dcv-session-store
+              echo "[license]" >> dcv.conf
+              echo "[log]" >> dcv.conf
+              echo "[session-management]" >> dcv.conf
+              echo "[session-management/defaults]" >> dcv.conf
+              echo "[session-management/automatic-console-session]" >> dcv.conf
+              echo "storage-root=\"/opt/dcv-session-store/\"" >> dcv.conf
+              echo "[display]" >> dcv.conf
+              echo "[connectivity]" >> dcv.conf
+              echo "[security]" >> dcv.conf
+              echo "authentication=\"system\"" >> dcv.conf
+              echo "[clipboard]" >> dcv.conf
+              echo "primary-selection-copy=true" >> dcv.conf
+              echo "primary-selection-paste=true" >> dcv.conf
+              mv dcv.conf /etc/dcv/dcv.conf
+
+              # Enable DCV server
+              systemctl enable dcvserver
+
+              # Create DCV session permissions files
+              rm -f /home/ubuntu/dcv.perms
+              echo "[permissions]" >> /home/ubuntu/dcv.perms
+              echo "%owner% allow builtin" >> /home/ubuntu/dcv.perms
+
+              # Create startup session script
+              echo "#!/bin/bash" >> /usr/local/bin/start-dcvsession.sh
+              echo "dcv create-session --type=console --owner ubuntu --storage-root /opt/dcv-session-store/ --permissions-file /home/ubuntu/dcv.perms dcvsession" >> /usr/local/bin/start-dcvsession.sh
+              chmod a+x /usr/local/bin/start-dcvsession.sh
+
+              echo "[Unit]" >> /etc/systemd/system/dcvsession.service
+              echo "Description=DCV session service" >> /etc/systemd/system/dcvsession.service
+              echo "After=dcvserver.service" >> /etc/systemd/system/dcvsession.service
+              echo "" >> /etc/systemd/system/dcvsession.service
+              echo "[Service]" >> /etc/systemd/system/dcvsession.service
+              echo "User=root" >> /etc/systemd/system/dcvsession.service
+              echo "ExecStart=/usr/local/bin/start-dcvsession.sh" >> /etc/systemd/system/dcvsession.service
+              echo "Restart= on-abort" >> /etc/systemd/system/dcvsession.service
+              echo "" >> /etc/systemd/system/dcvsession.service
+              echo "[Install]" >> /etc/systemd/system/dcvsession.service
+              echo "WantedBy=graphical.target" >> /etc/systemd/system/dcvsession.service
+
+              systemctl enable dcvsession
+              echo "install DCV server complete"
+
+              # install nfs-common
+              apt install -y nfs-common
+
+              ROS=''
+              PYTHON=''
+              if [[ $VERSION == "18.04" ]]
+              then
+                # melodic requries Python 2.x
+                ROS='melodic'
+                PYTHON=python
+                
+                apt install -y python-minimal  python-pip
+                pip install boto3
+                pip install kafka-python
+                pip install psycopg2-binary
+              elif [[ $VERSION == "20.04" ]]
+              then
+                # noetic requries Python 3.x
+                ROS='noetic'
+                PYTHON=python3
+              else
+                echo "Ubuntu $VERSION is not supported; must be one of 18.04, or 20.04"
+                exit 1
+              fi
+
+              apt install -y python3-minimal  python3-pip
+              pip3 install boto3
+              pip3 install kafka-python
+              pip3 install psycopg2-binary
+              pip3 install --upgrade awscli
+
+              # install ros
+              echo "install ros $ROS ..."
+              
+              apt install -y ros-$ROS-desktop-full 
+              echo "source /opt/ros/$ROS/setup.bash" >> /home/ubuntu/.bashrc
+              apt install -y $PYTHON-rosdep $PYTHON-rosinstall $PYTHON-rosinstall-generator $PYTHON-wstool build-essential
+
+              rosdep init
+              rosdep update
+
+              # Create roscore startup script
+              echo "#!/bin/bash" >> /usr/local/bin/start-roscore.sh
+              echo "source /opt/ros/$ROS/setup.bash" >> /usr/local/bin/start-roscore.sh
+              echo "roscore" >> /usr/local/bin/start-roscore.sh
+              chmod a+x /usr/local/bin/start-roscore.sh
+
+              echo "[Unit]" >> /etc/systemd/system/roscore.service
+              echo "Description=roscore service" >> /etc/systemd/system/roscore.service
+              echo "" >> /etc/systemd/system/roscore.service
+              echo "[Service]" >> /etc/systemd/system/roscore.service
+              echo "User=ubuntu" >> /etc/systemd/system/roscore.service
+              echo "ExecStart=/usr/local/bin/start-roscore.sh" >> /etc/systemd/system/roscore.service
+              echo "Restart=on-abort" >> /etc/systemd/system/roscore.service
+              echo "" >> /etc/systemd/system/roscore.service
+              echo "[Install]" >> /etc/systemd/system/roscore.service
+              echo "WantedBy=graphical.target" >> /etc/systemd/system/roscore.service
+
+              systemctl enable roscore
+              echo "install Ros $ROS complete"
+
+              # install webviz
+              echo "setup webviz ..."
+
+              # Create startup session script
+              echo "#!/bin/bash" >> /usr/local/bin/start-webviz.sh
+              echo "docker run -p 8080:8080 cruise/webviz" >> /usr/local/bin/start-webviz.sh
+              chmod a+x /usr/local/bin/start-webviz.sh
+
+              echo "[Unit]" >> /etc/systemd/system/webviz.service
+              echo "Description=webviz service" >> /etc/systemd/system/webviz.service
+              echo "" >> /etc/systemd/system/webviz.service
+              echo "[Service]" >> /etc/systemd/system/webviz.service
+              echo "User=ubuntu" >> /etc/systemd/system/webviz.service
+              echo "ExecStart=/usr/local/bin/start-webviz.sh" >> /etc/systemd/system/webviz.service
+              echo "Restart=on-abort" >> /etc/systemd/system/webviz.service
+              echo "" >> /etc/systemd/system/webviz.service
+              echo "[Install]" >> /etc/systemd/system/webviz.service
+              echo "WantedBy=graphical.target" >> /etc/systemd/system/webviz.service
+
+              systemctl enable webviz
+
+            - |+
+
+            - EKS_CLUSTER_NAME=
+            - !Ref 'AWS::StackName'
+            - |+
+
+            - REDSHIFT_ADDRESS=
+            - !GetAtt 'RedshiftCluster.Endpoint.Address'
+            - |+
+
+            - REDSHIFT_PORT=
+            - !GetAtt 'RedshiftCluster.Endpoint.Port'
+            - |+
+
+            - REDSHIFT_USER=
+            - !Ref RedshiftMasterUsername
+            - |+
+
+            - REDSHIFT_ROLE_ARN=
+            - !GetAtt RedshiftClusterRole.Arn
+            - |+
+
+            - REDSHIFT_DBNAME=
+            - !Ref RedshiftDatabaseName
+            - |+
+
+            - MSK_CLUSTER_ARN=
+            - !Ref MSKCluster
+            - |+
+
+            - MSK_CLUSTER_NAME=
+            - !Ref AWS::StackName
+            - |+
+
+            - GLUE_ROLE=
+            - !GetAtt GlueJobRole.Arn
+            - |+
+
+            - export EKS_NODE_ROLE=
+            - !GetAtt EksNodeRole.Arn
+            - |+
+
+            - DESKTOP_ROLE=
+            - !GetAtt DesktopRole.Arn
+            - |+
+
+            - EFS_FS_ID=
+            - !Ref EFSFileSystem
+            - |+
+
+            - FSX_FS_ID=
+            - !Ref FSxFileSystem
+            - |+
+
+            - FSX_MOUNT_NAME=
+            - !GetAtt 'FSxFileSystem.LustreMountName'
+            - |+
+
+            - FSX_DNS_NAME=
+            - !Ref FSxFileSystem
+            - '.fsx.'
+            - !Ref AWS::Region
+            - '.amazonaws.com'
+            - |+
+
+            - AWS_REGION=
+            - !Ref AWS::Region
+            - |+
+
+            - S3_BUCKET=
+            - !Ref S3Bucket
+            - |+
+
+            - KUBECTL_VERSION=
+            - !Ref KubectlVersion
+            - |+
+
+            - |
+              # clone the add-apt-repository
+              cd /home/ubuntu && git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
+              export DIR=/home/ubuntu/amazon-eks-autonomous-driving-data-service
+              chown -R ubuntu:ubuntu  $DIR
+             
+              # Update yaml files for creating EFS and FSx persistent-volume
+              sed -i -e "s/volumeHandle: .*/volumeHandle: $EFS_FS_ID/g" \
+                          $DIR/a2d2/efs/pv-efs-a2d2.yaml
+
+              sed -i -e "s/volumeHandle: .*/volumeHandle: $FSX_FS_ID/g" \
+                   -e "s/dnsname: .*/dnsname: $FSX_DNS_NAME/g" \
+                   -e "s/mountname: .*/mountname: $FSX_MOUNT_NAME/g"  \
+                   $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
+
+              MSK_SERVERS=$(aws kafka --region $AWS_REGION get-bootstrap-brokers \
+                    --cluster-arn $MSK_CLUSTER_ARN | \
+                    grep \"BootstrapBrokerString\"  | \
+                    awk '{split($0, a, " "); print a[2]}')
+
+              DESKTOP_USERNAME=$(echo $DESKTOP_ROLE | awk '{split($0, a, "/"); print a[2]}')
+              sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+                  -e "s/\"host\": .*/\"host\": \"$REDSHIFT_ADDRESS\",/g" \
+                  -e "s/\"port\": .*/\"port\": \"$REDSHIFT_PORT\",/g" \
+                  -e "s/\"user\": .*/\"user\": \"$REDSHIFT_USER\",/g" \
+                  -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"$S3_BUCKET\",/g" \
+                  $DIR/a2d2/charts/a2d2-data-service/values.yaml
+
+              sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+                  $DIR/a2d2/config/c-config-ex1.json
+                  
+              sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+                  $DIR/a2d2/config/c-config-ex2.json
+
+              aws s3 cp $DIR/a2d2/data/sensors.csv s3://$S3_BUCKET/redshift/sensors.csv
+              aws s3 cp $DIR/a2d2/data/vehicle.csv s3://$S3_BUCKET/redshift/vehicle.csv
+              aws s3 cp $DIR/scripts/a2d2-metadata-etl.py s3://$S3_BUCKET/glue/script/a2d2-metadata-etl.py
+
+              # Create redshift.config
+              cat >$DIR/a2d2/config/redshift.config <<EOL
+              {
+                "host": "$REDSHIFT_ADDRESS",
+                "port": "$REDSHIFT_PORT",
+                "user": "$REDSHIFT_USER",
+                "dbname": "$REDSHIFT_DBNAME",
+                "password": "",
+                "queries": [
+                  "create schema IF NOT EXISTS a2d2",
+                  "CREATE TABLE IF NOT EXISTS a2d2.sensor ( sensorid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (sensorid)) DISTSTYLE ALL",
+                  "CREATE TABLE IF NOT EXISTS a2d2.vehicle ( vehicleid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (vehicleid)) DISTSTYLE ALL",
+                  "create table IF NOT EXISTS a2d2.drive_data ( vehicle_id varchar(255) encode Text255 not NULL, scene_id varchar(255) encode Text255 not NULL, sensor_id varchar(255) encode Text255 not NULL, data_ts BIGINT not NULL sortkey, s3_bucket VARCHAR(255) encode lzo NOT NULL, s3_key varchar(255) encode lzo NOT NULL, primary key(vehicle_id, scene_id), FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid), FOREIGN KEY(sensor_id) references a2d2.sensor(sensorid)) DISTSTYLE AUTO",
+                  "COPY a2d2.sensor FROM 's3://$S3_BUCKET/redshift/sensors.csv' iam_role  '$REDSHIFT_ROLE_ARN' CSV",
+                  "COPY a2d2.vehicle FROM 's3://$S3_BUCKET/redshift/vehicle.csv' iam_role  '$REDSHIFT_ROLE_ARN' CSV",
+                  "COPY a2d2.drive_data FROM 's3://$S3_BUCKET/emr/a2d2/image/v1/' iam_role  '$REDSHIFT_ROLE_ARN' CSV IGNOREHEADER 1",
+                  "COPY a2d2.drive_data FROM 's3://$S3_BUCKET/emr/a2d2/pcld/v1/' iam_role  '$REDSHIFT_ROLE_ARN' CSV IGNOREHEADER 1"
+                ]
+              }
+              EOL
+              chown ubuntu:ubuntu $DIR/a2d2/config/redshift.config
+
+              # Create kafka.config 
+              cat >$DIR/a2d2/config/kafka.config <<EOL
+              {
+                "config-name": "${MSK_CLUSTER_NAME}-configuration",
+                "config-description": "${MSK_CLUSTER_NAME} Kafka configuration",
+                "cluster-arn": "${MSK_CLUSTER_ARN}",
+                "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"
+              }
+              EOL
+              chown ubuntu:ubuntu $DIR/a2d2/config/kafka.config
+
+              # Create glue.config 
+              cat >$DIR/a2d2/config/glue.config <<EOL
+              {
+                "s3_bucket": "${S3_BUCKET}",
+                "glue_role": "${GLUE_ROLE}",
+                "script_location": "s3://${S3_BUCKET}/glue/script/a2d2-metadata-etl.py" 
+              }
+              EOL
+              chown ubuntu:ubuntu $DIR/a2d2/config/glue.config
+
+              # update /home/ubuntu/.bashrc
+              echo "export s3_bucket_name=$S3_BUCKET" >> /home/ubuntu/.bashrc
+              echo "export eks_cluster_name=$EKS_CLUSTER_NAME" >> /home/ubuntu/.bashrc
+
+              # Create EFS and FSX mount script 
+              cat >/usr/local/bin/mount-efs-fsx.sh <<EOL
+              #!/bin/bash
+
+              if [[ ! -d /efs ]]
+              then
+                mkdir /efs
+              fi
+              
+              # Mount EFS
+              mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport $EFS_FS_ID.efs.$AWS_REGION.amazonaws.com:/ /efs
+
+              if [[ ! -d /fsx ]]
+              then
+                mkdir /fsx
+              fi
+
+              # Mount FSx
+              mount -t lustre -o noatime,flock $FSX_DNS_NAME@tcp:/$FSX_MOUNT_NAME /fsx
+              EOL
+
+              chmod u+x /usr/local/bin/mount-efs-fsx.sh
+
+              # Create ConfigMap for aws-auth 
+              cat >$DIR/a2d2/config/aws-auth.yaml <<EOL
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: aws-auth
+                namespace: kube-system
+              data:
+                mapRoles: |
+                  - rolearn: ${EKS_NODE_ROLE}
+                    username: system:node:{{EC2PrivateDNSName}}
+                    groups:
+                      - system:bootstrappers
+                      - system:nodes
+                  - rolearn: ${DESKTOP_ROLE}
+                    username: ${DESKTOP_USERNAME}
+                    groups:
+                      - system:masters
+              EOL
+
+              chown ubuntu:ubuntu $DIR/a2d2/config/aws-auth.yaml
+
+              # Create config file
+              mkdir /home/ubuntu/.aws
+              cat >/home/ubuntu/.aws/config <<EOL
+              [default]
+              region = ${AWS_REGION}
+              output=json
+
+              EOL
+              chown -R ubuntu:ubuntu /home/ubuntu/.aws
+              
+              # install kubectl for EKS
+              mkdir -p /usr/local/bin
+              curl -o /usr/local/bin/kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/$KUBECTL_VERSION/bin/linux/amd64/kubectl
+              chmod a+x /usr/local/bin/kubectl
+              curl -o /usr/local/bin/aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/$KUBECTL_VERSION/bin/linux/amd64/aws-iam-authenticator
+              
+              # install eksctl 
+              curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+              mv /tmp/eksctl /usr/local/bin
+
+              # install helm
+              curl -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+              chmod 700 /tmp/get_helm.sh
+              /tmp/get_helm.sh
+              rm /tmp/get_helm.sh
+
+              echo "NICE DCV server is enabled!" > /etc/motd
+
+              reboot
 
 Outputs:
   VpcSecurityGroup:
@@ -1013,6 +1783,9 @@ Outputs:
     Description: Desktop instance profile
     Value:
       Ref: DesktopInstanceProfile
+  DesktopInstance:
+    Description: Desktop instance id
+    Value: !Ref DesktopInstance
   DesktopSecurityGroup:
     Description: Desktop security group
     Value:
@@ -1032,6 +1805,9 @@ Outputs:
   EKSName:
     Description: EKS Cluster name
     Value: !Ref EksControlPlane
+  GlueJobRole:
+    Description: Glue job service role
+    Value: !GetAtt GlueJobRole.Arn
   MSKCluster:
     Description: MSK Cluster ARN
     Value: !Ref MSKCluster

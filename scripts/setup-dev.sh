@@ -14,15 +14,76 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-sudo apt update
-sudo apt install -y git tar
-sudo apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-sudo apt-key fingerprint 0EBFCD88
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io
-sudo docker run hello-world
-sudo usermod -aG docker ubuntu
+scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-sudo apt install -y awscli
+if [[ ! -f ~/.aws/credentials ]] 
+then
+	aws configure
+fi
+
+# set aws region
+aws_region=$(aws configure get region)
+[[ -z "${aws_region}" ]] && echo "aws_region env variable is required" && exit 1
+echo "AWS Region: $aws_region"
+
+# set s3 bucket name
+[[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name env variable is required" && exit 1
+echo "S3 Bucket Name: $s3_bucket_name"
+
+# set eks cluster name
+[[ -z "${eks_cluster_name}" ]] && echo "eks_cluster_name env variable is required" && exit 1
+echo "EKS Cluster Name: $eks_cluster_name"
+
+# configure kubectl
+echo "configure kubectl"
+aws sts get-caller-identity
+aws eks --region $aws_region update-kubeconfig --name $eks_cluster_name
+
+# verify kubectl works
+kubectl get svc || { echo 'kubectl configuration failed' ; exit 1; }
+chmod go-rwx $HOME/.kube/config
+
+# update aws-auth config map
+if [[ -f $scripts_dir/../a2d2/config/aws-auth.yaml ]]
+then
+	echo "Apply configmap: $scripts_dir/../a2d2/config/aws-auth.yaml"
+	kubectl apply -f $scripts_dir/../a2d2/config/aws-auth.yaml -n kube-system
+fi
+
+# create a2d2 namespace
+kubectl create namespace a2d2
+
+# configure open id provider in our EKS cluster
+echo "Create EKS cluster IAM OIDC provider"
+eksctl utils associate-iam-oidc-provider --region $aws_region --name $eks_cluster_name --approve
+
+# deploy AWS EFS CSI driver
+echo "Deploy AWS EFS CSI Driver"
+$scripts_dir/deploy-efs-csi-driver.sh
+kubectl apply -f $scripts_dir/../a2d2/efs/efs-sc.yaml
+
+# deploy AWS FSx CSI driver
+echo "Deploy AWS FSx CSI Driver"
+$scripts_dir/deploy-fsx-csi-driver.sh
+
+# create EFS persistent volume
+echo "Create k8s persistent-volume and persistent-volume-claim for efs"
+kubectl apply -n a2d2 -f $scripts_dir/../a2d2/efs/pv-efs-a2d2.yaml
+kubectl apply -n a2d2 -f $scripts_dir/../a2d2/efs/pvc-efs-a2d2.yaml
+
+# create FSx persistent volume
+echo "Create k8s persistent-volume and persistent-volume-claim for fsx"
+kubectl apply -n a2d2 -f $scripts_dir/../a2d2/fsx/pv-fsx-a2d2.yaml
+kubectl apply -n a2d2 -f $scripts_dir/../a2d2/fsx/pvc-fsx-a2d2.yaml
+kubectl get pv -n a2d2
+
+# create k8s pod role
+echo "Create EKS Pod role"
+$scripts_dir/create-eks-sa-role.sh $eks_cluster_name $s3_bucket_name
+
+#Update MSK cluster config
+echo "Update MSK cluster configuration"
+python3 $scripts_dir/update-kafka-cluster-config.py --config $scripts_dir/../a2d2/config/kafka.config
+
+# remove credentials
+rm  ~/.aws/credentials && echo "AWS Credentials Removed"

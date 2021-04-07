@@ -7,13 +7,12 @@
 # machine and combined with the account and region to form the repository name for ECR.
 
 # set region
-region=
+region=$(aws configure get region)
 distro=
-if [ "$#" -eq 2 ]; then
-    region=$1
-    distro=$2
+if [ "$#" -eq 1 ]; then
+    distro=$1
 else
-    echo "usage: $0 <aws-region> <noetic-focal, or melodic-bionic>"
+    echo "usage: $0  <noetic-focal, or melodic-bionic>"
     exit 1
 fi
   
@@ -57,6 +56,10 @@ aws ecr get-login-password --region ${region} \
 docker push ${fullname}
 if [ $? -eq 0 ]; then
 	echo "Amazon ECR URI: ${fullname}"
+    echo "Update uri in $DIR/../charts/a2d2-data-service/values.yaml"
+    sed -i -e "s|uri:.*|uri: ${fullname}|g" $DIR/../charts/a2d2-data-service/values.yaml
+    echo "Update uri in $DIR/../charts/a2d2-rosbridge/values.yaml"
+    sed -i -e "s|uri:.*|uri: ${fullname}|g" $DIR/../charts/a2d2-rosbridge/values.yaml
 else
 	echo "Error: Image build and push failed"
 	exit 1

@@ -2,21 +2,21 @@
 
 ## Overview
 
-This is an example of a data service typically used in advanced driver assistance systems (ADAS) and automated driving systems (ADS) development. The typical use case addressed by this data service is to aggregate and serve a series of [rosbag](http://wiki.ros.org/rosbag) files containing data that spans a drive-scene of interest. Each ```rosbag``` file in the series contains a discreet segment of the overall requested drive-scene data. Each ```rosbag``` file is aggregated from decomposed drive-scene  sensor data stored in [Amazon S3](https://aws.amazon.com/free/storage/s3), and meta-data stored in [Amazon Redshift](https://aws.amazon.com/redshift/). The drive-scene data of interest is identified by querying the meta-data stored in Amazon Redshift. 
+This is an example of a data service typically used in advanced driver assistance systems (ADAS), and automated driving systems (ADS) development. 
 
-While this specific data service uses [rosbag](http://wiki.ros.org/rosbag) file-format for returning the aggregated drive-scene data, the general concepts and ideas that inform this data service are not anchored in any specific file-format, and can be easily adapted to other file-formats.
+The typical use case addressed by this data service is to serve a single [```rosbag```](http://wiki.ros.org/rosbag)  file, or a series of ```rosbag``` files containing data from a drive scene of interest. In case of the ```rosbag``` series, each ```rosbag``` file contains the drive scene data for a single time step (default time step is 1s). Each ```rosbag``` file is composed from the drive scene data stored in [Amazon S3](https://aws.amazon.com/free/storage/s3), using the meta-data stored in [Amazon Redshift](https://aws.amazon.com/redshift/). 
 
-### Key concepts
 
-The data service runs in [Kubernetes Pods](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster. An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) cluster provides the communication channel between data client and the data service. The data service implements a reqest-response paradigm over Kafka topics. For scalability, multiple data service pods may listen for requests on the same Kafka topic, and multiple Kafka topics may be used by the data service to serve different data sets. When a data request arrives on a Kafka topic, one of the data service pods listening on the topic receives and processes the request.
+## Key concepts
 
-It is assumed that the data client knows the Kafka cluster endpoint, and the name of a Kafka topic on which the data service is listening. The data client sends requests for data on the well-known Kafka topic. The data-client request is encapsulated in a JSON document, and includes a unique dynamically generated response Kafka topic name. After sending the JSON request, the data client waits for the response on the unique response Kafka topic contained in the request.
+The data service runs in [Kubernetes Pods](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster. An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) cluster provides the communication channel between thhe data client, and the data service. The data service implements a *request-response* paradigm over Kafka topics. However, the response data is not sent back over the Kafka topics. Instead, the data service stages the response data in Amazon S3, Amazon FSx, or Amazon EFS, as specified in the data service configuration.
 
-The data service processes the data requests it receives and sends back the requested data to the data client. The data sent back to the client is staged on a shared file-system on FSx, or EFS, or in an S3 bucket, as requested by the data client. The staged data location is communicated to the data client in a JSON message sent on the unique response Kafka topic. If the data client requests to use FSx, or EFS shared file systems for staging the data, it is assumed that the data service and the data client are mounting the shared FSx, or EFS file systems at the same file-system path: ```/fsx```, or ```/efs```, respectively, otherwise the returned data location would be meaningless to the data client. 
+### Data client request
+Concretely, imagine the data client wants to request drive scene  data in ```rosbag``` file format from [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) for drive scene id ```20190401145936```, starting at timestamp ```1554121593909500``` (microseconds) , and stopping at timestamp ```1554122334971448``` (microseconds). 
 
-Once the data client receives the message containing the data location over the unique Kafka response topic, the data client directly reads the data, and processes the data as it deems fit. Once the returned data is processed, the data client deletes the data, and the unique Kafka response topic.
+The data client wants the response to include data **only** from the ```front-left camera``` in ```sensor_msgs/Image``` [ROS](https://www.ros.org/) data type, and the ```front-left lidar``` in ```sensor_msgs/PointCloud2``` ROS data type. Further, imagine the data client wants the response data to be chunked in series of ```rosbag``` files, each spanning ```1000000``` microseconds. Finally, the data client wants the response ```rosbag``` files to be stored on a shared Amazon FSx file system. 
 
-Concretely, imagine you want to request ```rosbag``` files aggregating drive scene  data from [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) spanning a specific time period, and you want the ```rosbag``` files to include data  from the front-left camera and lidar sensors, only. You can articulate such a request using a data client JSON document shown below:
+The data client can encode such a data request using the JSON object shown below, and send it to the (imaginary) Kafka cluster endpoint ```b-1.msk-cluster-1:9092,b-2.msk-cluster-1:9092``` on the Kafka topic ```a2d2```:
 
 ```
 {
@@ -39,347 +39,251 @@ Concretely, imagine you want to request ```rosbag``` files aggregating drive sce
 }
 ```
 
-Below, we explain the semantics of the various fields in the data client example JSON document shown above:
+For a detailed description of each request field shown in the example above, see [data request fields](#RequestFields) below.
 
-* The ```servers``` identify the Kafka cluster endpoint
-* The JSON document includes an array of one or more data ```requests```
-* The ```kafka_topic``` specifies the pre-shared Kafka topic on which the data request is sent
-* The ```vehicle_id``` is used to identify the relevant drive-scene data set 
-* The ```scene_id``` identifies the drive scene of interest, which in this example is ```20190401145936```, presumably a string representing the date and time of the drive
-* The ```start_ts``` and ```stop_ts``` (in microseconds) specify the start and stop timestamps for the drive scene data of interest
-* The ```ros_topic``` is a map from sensors in the vehicle to ```ros``` topics, and the ```data_type``` is a map from sensors to ```ros``` data types. 
-* The ```step``` is the discreet time step (in microseconds) used to divide up the total requested timespan into discreet chunks for the purpose of reading meta-data from RedShift database, and aggregating data in a ```rosbag``` file
-* The ```accept``` specifies format expected by the client:
-	* For example, ```fsx/multipart/rosbag``` means data should be aggregated into multiple discreet rosbag files, one ```rosbag``` file for each ```step```, and data should be staged on a shared [Amazon FSx for Lustre](https://aws.amazon.com/fsx/lustre/) file-system. 
-	* Optionally, one can specify ```accept``` as ```efs/multipart/rosbag``` for using [Amazon EFS](https://aws.amazon.com/efs/), or ```s3/multipart/rosbag``` for using [Amazon S3](https://aws.amazon.com/s3/) to stage the ```rosbag``` files
-	* If ```accept``` specifies ```singlepart```, the requested data is aggregated into a single ```rosbag``` file. For data requests spanning a large interval, such a request can take several minutes to be completed
-	* if ```accept``` is specified as ```manifest```, ordered manifest data containing S3 paths for the raw data (not aggregated ```rosbag``` files) matching the data request is streamed over the unique response Kafka topic, and the data client is expected to process the manifest stream as it deems fit 
-* If ```preview``` field is set to ```true```, the data service returns requested data over a single ```step``` starting with```start_ts```
+### Raw data input data source, and response data staging
 
-### Data input source, and response data staging
+The data service can be configured to input raw data from S3, FSx (see [Preload A2D2 data from S3 to FSx](#PreloadFSx) ), or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ).  Similarly, the data client can specify the ```accept``` field in the ```request``` to request that the response data be staged on S3, FSx, or EFS. Any combination of raw data input source, and the response data staging is valid. 
 
-The data service can be configured to input data from S3, FSx, or EFS.  Similarly, the data client can request the response data to be staged on S3, FSx, or EFS. Any combination of data input source and response data staging is valid. 
+The raw data input source is fixed when the data service is deployed. However, the response data staging option is specified in the data client request, and is therefore dynamic. 
 
-For maximum performance, pre-load the data in FSx file-system, and use FSx for data input source, and response data staging. Next best option is to use FSx for data input source (without pre-loading of data), and use FSx for response data staging. If you use FSx as data input source without pre-loading of data, first time requests for data are slightly slower than subsequent requests, because FSx automatically lazy loads data from S3, and caches the data on the FSx file-system. 
+## Tutorial step by step guide
 
-If you want to use EFS file-system as data input source, you must pre-load the data to the file-system. EFS does not automatically load data from S3. For an optimal combination of cost, setup time and performance, try different options, and decide what best meets the objectives of your use case.
+### Overview
+In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html). The high-level outline of this tutorial is as follows:
 
-## Tutorial steps
+* Prerequisites
+* Create [AWS CloudFormation](https://aws.amazon.com/cloudformation/) stack
+* ETL metadata from the raw data in the [Amazon S3](https://aws.amazon.com/s3/) bucket into the [Amazon Redshift](https://aws.amazon.com/redshift/) database
+* Deploy the data service in the [Amazon EKS](https://aws.amazon.com/eks/) cluster
+* Send a request to the data service from the data client, and visualize the response
 
-In this tutorial, we focus on [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html). However, the data service can be customized to work with other datasets.
 
-The general outline of this tutorial is as follows:
-* Setup EC2 developer instance
-* Create an S3 bucket and copy [A2D2 dataset](https://registry.opendata.aws/aev-a2d2/) to your Amazon S3 bucket
-* Use [AWS CloudFormation](https://aws.amazon.com/cloudformation/) to create the infrastructure 
-	* Install and configure ```kubectl```
-	* Install ```eksctl```
-	* Install ```Helm```
-	* Deploy AWS EFS CSI Driver
-	* Deploy AWS FSx CSI Driver
-	* Create EFS Persistent Volume
-	* Create FSx Persistent Volume
-	* Update [Amazon MSK](https://aws.amazon.com/msk/) cluster configuration
-* Create ```a2d2``` schema and tables in [Amazon Redshift](https://aws.amazon.com/Redshift/) 
-* Load initial data to ```a2d2``` schema tables
-* Create [AWS Glue Development Endpoint](https://docs.aws.amazon.com/glue/latest/dg/dev-endpoint.html) and an attached Jupyter Notebook instance
-	* Extract A2D2 meta-data to CSV files in S3 bucket
-	* Load extracted meta-data to Amazon Redshift
-* Create [AWS IAM](https://aws.amazon.com/iam/) Role for EKS pods
-* Optionally, stage A2D2 data on EFS
-* Optionally, stage A2D2 data on FSx for Lustre
-* Build and push Docker container image to [Amazon ECR](https://aws.amazon.com/ecr/)
-* Use Helm chart to start data service
-* Launch graphics desktop for vizualization of ```rosbag``` files using [rviz](http://wiki.ros.org/rviz)
+### Prerequisites
+This tutorial assumes you have an [AWS Account](https://aws.amazon.com/account/), and you have [Administrator job function](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_job-functions.html) access to the AWS Management Console.
 
+To get started:
 
-## Setup EC2 developer instance
+* Select your [AWS Region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html). The AWS Regions supported by this project include, us-east-1, us-east-2, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2, and ap-south-1. Note that not all Amazon EC2 instance types are available in all [AWS Availability Zones](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html) in an AWS Region.
+* Subscribe to [Ubuntu Pro 18.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-1804-LTS/B0821T9RL2) and [Ubuntu Pro 20.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-2004-LTS/B087L1R4G4).
+* If you do not already have an Amazon EC2 key pair, [create a new Amazon EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#prepare-key-pair). You will need the key pair name to specify the ```KeyName``` parameter when creating the AWS CloudFormation stack below. 
+* You will need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the AWS region of your choice. You will use the S3 bucket name to specify the ```S3Bucket``` parameter in the stack. 
+* Run ```curl ifconfig.co``` on your laptop and note your public IP address. This will be the IP address you will need to specify ```DesktopAccessCIDR``` parameter in the stack.
 
-To get started, you will need an EC2 key pair. If you have not already created an EC2 key pair, [create a new EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html). 
 
-Launch [Ubuntu 18.04 AMI](https://aws.amazon.com/marketplace/pp/B07CQ33QKV?qid=1596551002060&sr=0-1&ref_=srh_res_product_title) instance [using EC2 console](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/launching-instance.html). Select ```m5a.4xlarge``` instance type. Select ```gp2``` [EBS volume](https://aws.amazon.com/ebs/) with atleast 500 GB.  Once the instance is Running, [connect to your EC2 developer instance using SSH](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstancesLinux.html). 
+### Create AWS CloudFormation Stack
+The [AWS CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html) template ```cfn/mozart.yml``` in this repository creates [AWS Identity and Access Management (IAM)](https://aws.amazon.com/iam/) resources, so when you [create the CloudFormation Stack using the console](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html), you must check 
+**I acknowledge that AWS CloudFormation might create IAM resources.** 
 
-Clone this git repository on the EC2 instance. **For all the commands in this tutorial, we assume the current working directory to be the root of the cloned git repository.** Next, we setup the EC2 developer instance:
+Create a new AWS CloudFormation stack using the ```cfn/mozart.yml``` template. The stack input parameters you must specify are described below:
 
-	./scripts/setup-dev.sh
+| Parameter Name | Parameter Description |
+| --- | ----------- |
+| KeyPairName | This is a *required* parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
+| RedshiftMasterUserPassword | This is a *required* parameter whereby you specify the Redshift database master user password.|
+| RemoteAccessCIDR | This is a *required* parameter whereby you specify the public IP CIDR range from where you need remote access to your graphics desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
+| S3Bucket | This is a *required* parameter whereby you specify the name of the Amazon S3 bucket to store your data. **The S3 bucket must already exist.** |
 
-Before we proceed, you must **logout** of the EC2 instance and connect again using SSH. 
+For all other stack input parameters, default values are recommended during first walkthrough. See complete list of all the [template input parameters](#InputParams) below. See the stack outputs in CloudFormation console to view all the resources created in the stack. 
 
-This tutorial requires [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys) for programmatic access consistent with [Network Administrator](https://docs.aws.amazon.com/en_pv/IAM/latest/UserGuide/access_policies_job-functions.html) job function. After you create AWS Access keys for programmatic access with requisite permissions consistent with Network job function, [configure AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html) on EC2 developer instance:
-	
-	aws configure
+The key resources created in the stack include an [Amazon EKS](https://aws.amazon.com/eks/?whats-new-cards.sort-by=item.additionalFields.postDateTime&whats-new-cards.sort-order=desc) cluster, an [AWS MSK](https://aws.amazon.com/msk/) cluster, an [Amazon Redshift](https://aws.amazon.com/redshift/) cluster, and an [Amazon EC2](https://aws.amazon.com/ec2/?ec2-whats-new.sort-by=item.additionalFields.postDateTime&ec2-whats-new.sort-order=desc) graphics desktop.  
 
+During stack creation, this repository is automatically cloned on the graphics desktop under ```/home/ubuntu```. Relevant configuration files are automatically generated and placed under ```a2d2/config``` directory. Required environment variables are appended to ```/home/ubuntu/.bashrc``` file. Applicable EKS YAML files under ```scripts```, and [Helm Values](https://helm.sh/docs/chart_template_guide/values_files/) files  under ```a2d2/charts``` are also automatically updated with the correct values from the stack outputs. 
 
-## Create S3 bucket and copy A2D2 dataset
-Using AWS CLI, we next create an S3 bucket. If your region is ```us-east-1```, execute:
+## Connect to the graphics desktop using SSH
 
-	aws s3api create-bucket --bucket <bucket-name> --region us-east-1
+* Once the stack status in CloudFormation console is ```CREATE_COMPLETE```, find the deep learning desktop instance launched in your stack in the Amazon EC2 console, and [connect to the instance using SSH](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstancesLinux.html) as user ```ubuntu```, using your SSH key pair.
+* When you connect to the desktop using SSH, and you see the message ```"Cloud init in progress. Machine will REBOOT after cloud init is complete!!"```, disconnect and try later after about 20 minutes. The desktop installs the NICE DCV server on first-time startup, and reboots after the install is complete.
+* If you see the message ```NICE DCV server is enabled!```, run the command ```sudo passwd ubuntu``` to set a new password for user ```ubuntu```. Now you are ready to connect to the desktop using the [NICE DCV client](https://docs.aws.amazon.com/dcv/latest/userguide/client.html)
 
-For all other regions, execute:
+### Connect to the graphics desktop using NICE DCV Client
+* Download and install the [NICE DCV client](https://docs.aws.amazon.com/dcv/latest/userguide/client.html) on your laptop.
+* Use the NICE DCV Client to login to the desktop as user ```ubuntu```
+* When you first login to the desktop using the NICE DCV client, you will be asked if you would like to upgrade the OS version. **Do not upgrade the OS version** .
 
-	aws s3api create-bucket --bucket <bucket-name> --region <aws-region> --create-bucket-configuration LocationConstraint=<aws-region>
+Now you are ready to proceed to the following steps.
 
-To copy [A2D2 dataset](https://registry.opendata.aws/aev-a2d2/) from ```aev-autonomous-driving-dataset``` S3 bucket to your S3 bucket under ```a2d2``` prefix, specify your ```s3-bucket-name``` name below:
+### Set working directory
 
-	nohup ./scripts/copy-a2d2.sh <s3-bucket-name> 1>/tmp/copy-a2d2.log 2>&1 &
+For all the commands in this tutorial, we assume the working directory to be the root of this git repository cloned on the graphics desktop. Open a terminal, and execute the following command to set the *working directory*:
 
-Wait for this step to be completed before proceeding. This step may take upto 24 hours to complete.
+	cd ~/amazon-eks-autonomous-driving-data-service 
 
-## Use AWS CloudFormation to create the infrastructure
-Using [CloudFormation console](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html) create a CloudFormation stack using [mozart.yml](cfn/mozart.yml) template. Following CloudFormation parameters are required:
-  * ```S3Bucket```: This is the name of your S3 bucket
-  * ```KeyPairName```: This is the Amazon EC2 SSH Key pair name you created above
-  * ```RedshiftMasterUserPassword```: Specify a password for Redshift ```admin``` user
+### Configure the data service infrastructure
 
-For maximum security, it is highly recommended that you restrict SSH access to the graphics desktop you may launch later in the tutorial by setting ```RemoteAccessCIDR``` parameter to your specific Internet IP ```/32``` CIDR address.
- 
- Wait for CloudFormation Stack status to show ```Completed``` before proceeding. You will need the ```Output``` of the CloudFormation stack in steps below. This step may take 30 minutes, or longer.
+For this step, you need your [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys) with Administrator job function programmatic access. The AWS credentials are only used for this step and automatically removed at the end of this step. This step executes following actions:
 
- If you have already created a stack using this template in this AWS region, you may need to update other parameters, so they may have unique values. This includes ```EKSClusterName``` parameter that specifies Amazon EKS cluster name created in the stack.
- 
-### Install and configure ```kubectl```
-The CloudFormation stack created in the previous step includes an Amazon EKS cluster. The  default EKS cluster name is ```mozart```, unless you specified a different parameter value for ```EKSClusterName``` in the previous step. We need to install and configure EKS cluster client, ```kubectl```, on EC2 developer instance. This will allow us to communicate with EKS cluster. To install ```kubectl```, first ```ssh``` to EC2 developer instance, and execute:
+* Configure ```kubectl``` to use the [EC2 instance profile](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2_instance-profiles.html) role
+* Create ```a2d2``` Kubernetes namespace 
+* Create an IAM OIDC provider for the EKS cluster
+* Deploy Amazon FSx for Luster CSI driver, and create EKS persistent volume
+* Deploy Amazon EFS CSI driver, and create EKS persistent volume
+* Create IAM role for EKS pods
+* Update the MSK cluster configuration to enable automatic Kafka topics
 
-	./scripts/install-kubectl.sh <aws-region> <eks-cluster-name>
+In the *working directory*, run the command:
 
-Verify ```kubectl``` installed correctly:
+		./scripts/setup-dev.sh
 
-	kubectl get svc
+At the end of this command output, you should see ```AWS Credentials Removed```. Verify that there is no ```~/.aws/credentials``` file on the graphics desktop.
 
-Create ```a2d2``` namespace:
+### Extract A2D2 dataset to your S3 bucket
 
-	kubectl create namespace a2d2
+To extract the compressed public [A2D2 dataset](https://registry.opendata.aws/aev-a2d2/) from ```aev-autonomous-driving-dataset``` S3 bucket to your S3 bucket under ```a2d2``` prefix, execute the following command in the *working directory*:
 
-Secure kube config file:
+		nohup ./scripts/copy-a2d2.sh 1>/tmp/copy-a2d2.log 2>&1 &
 
-	chmod go-rwx ~/.kube/config
-	
-### Install ```eksctl```
+You need to wait for this script command to be completed before proceeding with the following steps. **It may take up to 24 hours to extract the A2D2 dataset into your S3 bucket.** 
 
-To install ```eksctl```, execute:
+### ETL metadata from Amazon S3 Amazon Redshift
 
-	./scripts/install-eksctl.sh
+Once the previous step is complete, you are ready to extract the metadata from the raw data, and load it into the Redshift database: We do this in two steps. 
 
-Next,  to configure open id provider in our EKS cluster, execute:
+#### ETL Step 1: Extract metadata from the raw A2D2 data 
+To extract the metadata from the raw A2D2 data, and store it in your S3 bucket, run an [AWS Glue](https://aws.amazon.com/glue/) ETL job by executing the following command in the *working directory*:
 
-	eksctl utils associate-iam-oidc-provider --region <aws-region> --name <eks-cluster-name> --approve
+		python3 ./scripts/glue-etl-job.py --config ./a2d2/config/glue.config
 
-### Install Helm
-We plan to use [Helm](https://docs.aws.amazon.com/eks/latest/userguide/helm.html) with EKS. To install Helm:
+The ```./a2d2/config/glue.config``` file is automatically generated when your created the stack: It contains the required parameters to create the Glue job. In the output, you should see the job status. 
 
-	./scripts/install-helm.sh
+If for any reason you have to rerun this step, first delete all the data in the ```emr``` prefix in your S3 bucket, and then rerun the step.
 
-### Deploy AWS EFS CSI Driver
-To deploy [AWS EFS CSI Driver](https://github.com/kubernetes-sigs/aws-efs-csi-driver) execute:
+#### ETL Step 2: Load metadata from S3 to Redshift
 
-	./scripts/deploy-efs-csi-driver.sh
-	kubectl apply -f a2d2/efs/efs-sc.yaml
-	
-### Deploy AWS FSx CSI Driver
-To deploy [AWS FSX CSI Driver](https://github.com/kubernetes-sigs/aws-fsx-csi-driver) execute:
+To load the metadata into the Redshift database, edit ```./a2d2/config/redshift.config``` to specify the Redshift database password in the ```password``` field, and execute the following command in the *working directory*:
 
-	./scripts/deploy-fsx-csi-driver.sh
-	
-### Create EFS Persistent Volume
+		python3 ./scripts/setup-redshift-db.py --config ./a2d2/config/redshift.config  
 
-For this step, we will need the ```EFSFileSystemId``` from the output of the CloudFormation stack we created above. Specify ```<stack-name>``` below, and note the ```EFSFileSystemId``` in the output of the command:
+The ```./a2d2/config/redshift.config``` file is automatically generated when you created the stack: It contains Redshift connection information, and the queries for creating the schema, the tables, and uploading the metadata from S3 to Redshift.
 
-	aws cloudformation describe-stacks --stack-name <stack-name>
+In the output you should see the Redshift queries being executed.
 
-Edit ```a2d2/efs/pv-efs-a2d2.yaml``` specifying ```EFSFileSystemId``` as the value of the ```volumeHandle```. Execute:
 
-	kubectl apply -n a2d2 -f a2d2/efs/pv-efs-a2d2.yaml
+### Deploy the data service in EKS using Helm Charts
 
-Verify persistent-volume was successfully created: 
-	
-	kubectl get pv -n a2d2
+*For best performance, [preload A2D2 data from S3 to FSx](#PreloadFSx).*
 
-Create EFS persistent-volume-claim: 
-	
-	kubectl apply -n a2d2 -f a2d2/efs/pvc-efs-a2d2.yaml
+The data service is deployed using an [Helm Chart](https://helm.sh/docs/topics/charts/), and runs as a ```kubernetes deployment``` in EKS. To build and push the required Docker image to [Amazon ECR](https://aws.amazon.com/ecr/), execute the following command in the *working directory*:
 
-Verify persistent-volume was successfully bound: 
-	
-	kubectl get pv -n a2d2
+		./scripts/build-ecr-image.sh
 
-### Create FSx Persistent Volume
+This step automatically updates the ```a2d2/charts/a2d2-data-service/values.yaml```  and ```a2d2/charts/a2d2-rosbridge/values.yaml``` files with the ECR image URI.
 
-For this step we will need the ```FSxFileSystemId``` in CloudFormation stack we created above. Specify ```<stack-name>``` below, and note the ```FSxFileSystemId``` in the output of the command:
+Edit ```a2d2/charts/a2d2-data-service/values.yaml``` file, and set  ```configMap.database.password``` to your Redshift database password: All other values have been automatically updated.
 
-	aws cloudformation describe-stacks --stack-name <stack-name>
+To start the A2D2 data service, execute the following command in the *working directory*:
 
-We also need the FSx file-system mount name. To get that, specify ```<FSxFileSystemId>``` below and note ```MountName``` and ```DNSName``` in the output of the command:
+		helm install --debug a2d2-data-service ./a2d2/charts/a2d2-data-service/
 
-	aws fsx describe-file-systems --file-system-ids <FSxFileSystemId>
-	
-Edit ```a2d2/fsx/pv-fsx-a2d2.yaml```, set ```volumeHandle``` to ```FSxFileSystemId```, set ```mountname```  to ```MountName```, and set ```dnsname``` to ```DNSName```. Execute:
+To verify that the ```a2d2-data-service``` deployment is running, execute the command:
 
-	kubectl apply -n a2d2 -f a2d2/fsx/pv-fsx-a2d2.yaml
-
-Verify persistent-volume was successfully created: 
-	
-	kubectl get pv -n a2d2
-
-Create FSx persistent-volume-claim: 
-	
-	kubectl apply -n a2d2 -f a2d2/fsx/pvc-fsx-a2d2.yaml
-
-Verify persistent-volume was successfully bound: 
-	
-	kubectl get pv -n a2d2
-
-### Update Amazon MSK cluster configuration
-
-The CloudFormation stack you created above created your [Amazon MSK](https://aws.amazon.com/msk/) cluster. This step creates a new Amazon MSK cluster configuration and updates the configuration of your Amazon MSK cluster. This step can be done using AWS CLI, as described below, or using AWS management console (recommended). 
-
-Create a [new Amazon MSK cluster configuration](https://docs.aws.amazon.com/msk/latest/developerguide/msk-configuration-operations.html#msk-configuration-operations-create) with following settings:
-
-```
-auto.create.topics.enable=true
-delete.topic.enable=true
-num.replica.fetchers=2
-socket.request.max.bytes=104857600
-unclean.leader.election.enable=true
-default.replication.factor=2
-min.insync.replicas=2
-num.io.threads=16
-num.network.threads=10
-num.partitions=1
-log.roll.ms=900000 
-log.retention.ms=1800000
-```
-
-[Update the configuration of your Amazon MSK cluster](https://docs.aws.amazon.com/msk/latest/developerguide/msk-update-cluster-config.html) with the cluster configuration created above. 
-
-## Create a2d2 Redshift schema and tables 
-For this step, use the AWS management console built-in [query editor](https://docs.aws.amazon.com/redshift/latest/mgmt/query-editor.html). To use the query editor, you will need to connect to the Amazon Redshift database (default name of database is ```mozart```) using the ```username``` (default ```username``` is ```admin```) and ```password``` you used to create the RedShift database.  Once connected to the Redshift database, execute following SQL statement in the query editor to create ```a2d2``` schema:
-
-	create schema a2d2
-
-Next, execute the SQL in [sensor.ddl](a2d2/ddl/sensor.ddl), [vehicle.ddl](a2d2/ddl/vehicle.ddl), and [drive_data.ddl](a2d2/ddl/drive_data.ddl), **in order**, in the AWS management console built-in [query editor](https://docs.aws.amazon.com/redshift/latest/mgmt/query-editor.html) to create new Redshift tables for  ```sensor```, ```vehicle```, and ```drive_data```, respectively. 
-
-## Load initial data to a2d2 schema tables
-
-Next, upload [sensors.csv](data/sensors.csv) and [vehicle.csv](data/vehicle.csv) files to your S3 bucket, by executing following AWS CLI commands in the root directory of your Git repository on your EC2 developer instance:
-
-	aws s3 cp a2d2/data/sensors.csv s3://<your-s3-bucket>/redshift/sensors.csv
-	aws s3 cp a2d2/data/vehicle.csv s3://<your-s3-bucket>/redshift/vehicle.csv
-
-For the next step, you need to note down ```RedshitClusterRole``` available in the output of the command below:
-
-	aws cloudformation describe-stacks --stack-name <stack-name>
-
-In the Redshift query editor, use the ```RedshiftClusterRole``` your noted above as the ```iam_role```, and run the statement below:
-
-	COPY a2d2.sensor
-	FROM 's3://<your-s3-bucket>/redshift/sensors.csv'
-		iam_role  'arn:aws:iam::XXXXXXXXXXXX:role/xxxxxxx-RedshiftClusterRole-XXXXXXXXXXXX'
- 		CSV
+		kubectl get pods -n a2d2
 		
-Next, in the Redshift query editor, run the statement below:
+You can stop the running data service by executing:
 
-	COPY a2d2.vehicle
-	FROM 's3://<your-s3-bucket>/redshift/vehicle.csv'
-		iam_role  'arn:aws:iam::XXXXXXXXXXXX:role/xxxxxx-RedshiftClusterRole-XXXXXXXXXXXX'
- 		CSV
+		helm delete a2d2-data-service
+ 
 
-## Create AWS Glue development endpoint and notebook instance
+### Run data client
 
-In this step you will [Add an AWS Glue Development Endpoint](https://docs.aws.amazon.com/glue/latest/dg/add-dev-endpoint.html) and then [create an Amazon SageMaker Notebook with your AWS Glue Development Endpoint](https://docs.aws.amazon.com/glue/latest/dg/dev-endpoint-tutorial-sage.html). You will create an IAM role as part of adding an AWS Glue Endpoint, and another IAM role as part of creating a SageMaker notebook. Both these IAM roles need full access to your S3 bucket. So, edit these roles in AWS management console, and add following IAM inline policy to these roles (replace ```your-s3-bucket-name``` with your S3 bucket name):
 
-```
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:List*",
-                "s3:Get*",
-                "s3:PutObject*",
-                "s3:DeleteObject*"
-            ],
-            "Resource": [
-                "arn:aws:s3:::your-s3-bucket-name",
-                "arn:aws:s3:::your-s3-bucket-name/*"
-            ]
-        }
-    ]
-}
-```
-
-Execute following steps to create the AWS Glue development endpoint and associated notebook instance:
-
-  -  [Add an AWS Glue Development Endpoint](https://docs.aws.amazon.com/glue/latest/dg/add-dev-endpoint.html)
-      - Under "Security configuration, script libraries, and job parameters (optional)" in the wizard
-      	- use Worker type as G.2X  (minimum 5 workers) and use latest Glue version with support for Python 3
-      - Skip "Networking" in the wizard
-      - Skip "Add an SSH public key (Optional)" in the wizard
-      - Create a Glue service IAM role and edit role to add the S3 bucket inline policy shown above
-    
-  -  [Create Amazon SageMaker Notebook with your AWS Glue Development Endpoint](https://docs.aws.amazon.com/glue/latest/dg/dev-endpoint-tutorial-sage.html)
-     - Create an IAM role as part of the create notebook wizard and edit the role to add S3 bucket inline policy
-     
-Open the Amazon SageMaker notebook instance you just created. If you prefer using JuypyterLab. switch the notebook instance to JupyterLab. Open a terminal in notebook instance. Clone this Git repository under ```$HOME/SageMaker``` directory in the notebook instance.
+To visualize the response data requested by the A2D2 data client, we will use [rviz](http://wiki.ros.org/rviz) tool on the graphics desktop. Open a terminal on the desktop, and run ```rviz```. In the ```rviz``` tool, set ```/home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/config/a2d2.rviz``` as the ```rviz``` config file. You should see ```rviz``` tool now configured with two areas, one for visualizing image data, and the other for visualizing point cloud data.
   
-### Extract A2D2 meta-data to CSV files in S3 bucket
-In the Amazon SageMaker notebook instance you created above, open ```mozart/a2d2/notebooks/a2d2-camera-lidar-json.ipynb``` notebook and run through it. This notebook uses PySpark to read relevant A2D2 data from your S3 bucket, transform it, and save the transformed data into CSV files in your S3 bucket. In the next step, we import the transformed CSV data files into ```a2d2.drive_data``` Redshift table.
+To run the data client, execute the following command in the *working directory*:
 
-### Load extracted meta-data to Amazon Redshift
+		python ./a2d2/src/data_client.py \
+			--config ./a2d2/config/c-config-ex1.json 1>/tmp/a.out 2>&1 & 
 
-In this step, we import the extracted CSV files from S3 into ```a2d2.drive_data``` Redshift table. We do this in two steps. In the Redshift query editor, first run the statement below (specifying your S3 bucket name and ```iam_role``` ):
+After a brief delay, you should be able to preview the response data in the ```rviz``` tool To preview data from a different drive scene, execute:
 
-	COPY a2d2.drive_data
-	FROM 's3://<your-s3-bucket>/emr/a2d2/image/v1/'
-		iam_role  'arn:aws:iam::XXXXXXXXXXXX:role/xxxxxx-RedshiftClusterRole-XXXXXXXXXXXX'
- 		CSV
-		IGNOREHEADER 1
+		python ./a2d2/src/data_client.py \
+			--config ./a2d2/config/c-config-ex2.json 1>/tmp/a.out 2>&1 & 
 
-Next, run the statement below:
 
-	COPY a2d2.drive_data
-	FROM 's3://<your-s3-bucket>/emr/a2d2/pcld/v1/'
-		iam_role  'arn:aws:iam::XXXXXXXXXXXX:role/xxxxxx-RedshiftClusterRole-XXXXXXXXXXXX'
- 		CSV
-		IGNOREHEADER 1
+You can set ```"preview": false``` in the data client config file, and run the above command to view the complete response.
+			
+### Killing data service client
 
-## Create AWS IAM Role for EKS pods
+Killing the data client does not stop the data service from producing and sending the ```rosbag``` files to the client, as the data information is being sent asynchronously. If the data client is killed by the user, the data service will continue to stage the response data, and the data will remain stored on the response data staging option specified in the data client request.
 
-Before we can proceed, we need to create an AWS IAM role that will allow various EKS pods to access your S3 bucket. 
+If you kill the data service client before it exits normally, be sure to clean up all the processes spawned by the data client. 
 
-Execute:
 
-		./scripts/create-eks-sa-role.sh <eks-cluster-name> <s3-bucket-name>
-		
-to create the AWS IAM role. **Note the ```ROLE``` output of this command: you will need it in steps below.**
+## <a name="Reference"></a> Reference
 
-## (Optional step) Stage A2D2 data on EFS 
+### <a name="RequestFields"></a> Data client request fields
+Below, we explain the semantics of the various fields in the data client request JSON object.
 
-*This step is needed only if your plan to configure the data service to use EFS as the data input source. This step is not needed if you plan to  use EFS only with your data client for reading response data.* 
+| Request field name | Request field description |
+| --- | ----------- |
+| ```servers``` | The ```servers``` identify the [AWS MSK](https://aws.amazon.com/msk/) Kafka cluster endpoint. |
+| ```requests```| The JSON document sent by the client to the data service must include an array of one or more data ```requests``` for drive scene data. |
+| ```kafka_topic``` | The ```kafka_topic``` specifies the Kafka topic on which the data request is sent from the client to the data service. The data service is listening on the topic. |
+| ```vehicle_id``` | The ```vehicle_id``` is used to identify the relevant drive scene dataset. |
+| ```scene_id```  | The ```scene_id``` identifies the drive scene of interest, which in this example is ```20190401145936```, which in this example is a string representing the date and time of the drive scene, but in general could be any unique value. |
+| ```start_ts``` | The ```start_ts``` (microseconds) specifies the start timestamp for the drive scene data request. |
+| ```stop_ts``` | The ```stop_ts``` (microseconds) specifies the stop timestamp for the drive scene data request. |
+| ```ros_topic``` | The ```ros_topic``` is a dictionary from ```sensor ids``` in the vehicle to ```ros``` topics.|
+| ```data_type```| The ```data_type``` is a dictionary from ```sensor ids``` to ```ros``` data types.  |
+| ```step``` | The ```step``` is the discreet time interval (microseconds) used to discretize the timespan between ```start_ts``` and ```stop_ts``` into discreet chunks. The data service responds with a ```rosbag``` file for each chunk, if ```accept``` field contains ```multipart``` . See also ```singlepart``` field.|
+| ```accept``` | The ```accept``` specifies the response data staging format acceptable to the client. |
+| ```fsx/multipart/rosbag``` | Format for response data staging on [Amazon FSx for Lustre](https://aws.amazon.com/fsx/lustre/) as  discretized ```rosbag``` chunks. |
+| ```efs/multipart/rosbag``` | Format for response data staging on [Amazon EFS](https://aws.amazon.com/efs/) as  discretized ```rosbag``` chunks.|
+|```s3/multipart/rosbag```| Format for response data staging on [Amazon S3](https://aws.amazon.com/s3/) as  discretized ```rosbag``` chunks.|
+| ```singlepart```| If the ```accept``` specifies ```singlepart```, the response data comprises of a single ```rosbag``` file, instead of the discretized ```rosbag``` chunks in the case of ```multipart```. See also ```step``` field. |
+| ```manifest``` | If the ```accept``` is specified as ```manifest```, meta-data containing S3 paths to the raw data is returned, and the data client is expected to process the meta-data as it deems fit. |
+|```preview```| If the ```preview``` field is set to ```true```, the data service returns requested data over a single time ```step``` starting from ```start_ts``` , but ignores the ```stop_ts```.|
 
-Edit ```a2d2/efs/stage-data-a2d2.yaml``` and set the value of ```eks.amazonaws.com/role-arn``` to the ```ROLE``` output in the step "Create AWS IAM role for EKS pods", and set ```S3_BUCKET``` environment variable to your S3 bucket name. 
+### <a name="InputParams"></a> AWS CloudFormation template input parameters
+This repository provides an [AWS CloudFormation](https://aws.amazon.com/cloudformation/) template that is used to create the required stack.
 
-Execute following command to start copying data from your S3 bucket to EFS:
+Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input parameters. Desktop below refers to the NICE DCV enabled high-performance graphics desktop that acts as the data service client in this tutorial.
 
-	kubectl apply -n a2d2 -f a2d2/efs/stage-data-a2d2.yaml
+| Parameter Name | Parameter Description |
+| --- | ----------- |
+| DesktopInstanceType | This is a **required** parameter whereby you select an Amazon EC2 instance type for the desktop running in AWS cloud. Default value is ```g3s.xlarge```. |
+| DesktopEbsVolumeSize | This is a **required** parameter whereby you specify the size of the root EBS volume (default size is 200 GB) on the desktop. Typically, the default size is sufficient.|
+| DesktopEbsVolumeType | This is a **required** parameter whereby you select the [EBS volume type](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) (default is gp3). |
+| DesktopHasPublicIpAddress | This is a **required** parameter whereby you select whether a Public Ip Address be associated with the Desktop.  Default value is ```true```.|
+| EKSEncryptSecrets | This is a **required** parameter whereby you select if encryption of EKS secrets is ```Enabled```. Default value is ```Enabled```.|
+| EKSEncryptSecretsKmsKeyArn | This is an *optional* advanced parameter whereby you specify the [AWS KMS](https://aws.amazon.com/kms/) key ARN that is used to encrypt EKS secrets. Leave blank to create a new KMS key.|
+| EKSNodeGroupInstanceType | This is a **required** parameter whereby you select EKS Node group EC2 instance type. Default value is ```r5n.8xlarge```.|
+| EKSNodeVolumeSizeGiB | This is a **required** parameter whereby you specify EKS Node group instance EBS volume size. Default value is 200 GiB.|
+| EKSNodeGroupMinSize | This is a **required** parameter whereby you specify EKS Node group minimum size. Default value is 1 node.|
+| EKSNodeGroupMaxSize | This is a **required** parameter whereby you specify EKS Node group maximum size. Default value is 8 nodes.|
+| EKSNodeGroupDesiredSize | This is a **required** parameter whereby you specify EKS Node group initial desired size. Default value is 2 nodes.|
+| FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of 3600 GiB. Default value is 7200 GiB.|
+| FSxS3ImportPrefix | This is an *optional* advanced parameter whereby you specify FSx S3 bucket path prefix for importing data from S3 bucket. Leave blank to import the complete bucket.|
+| KeyPairName | This is a **required** parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
+| KubectlVersion | This is a **required** parameter whereby you specify EKS ```kubectl``` version. Default value is ```1.19.6/2021-01-05```. |
+| KubernetesVersion | This is a **required** parameter whereby you specify EKS cluster version. Default value is ```1.19```. |
+| MSKBrokerNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for AWS MSK Broker. |
+| MSKNumberOfNodes | This is a **required** parameter whereby you specify the number of MSK Broker nodes, which must be >= 2. |
+| PrivateSubnet1CIDR | This is a **required** parameter whereby you specify the Private Subnet1 CIDR in Vpc CIDR. Default value is ```172.30.64.0/18```.|
+| PrivateSubnet2CIDR | This is a **required** parameter whereby you specify the Private Subnet2 CIDR in Vpc CIDR. Default value is ```172.30.128.0/18```.|
+| PrivateSubnet3CIDR | This is a **required** parameter whereby you specify the Private Subnet3 CIDR in Vpc CIDR. Default value is ```172.30.192.0/18```.|
+| PublicSubnet1CIDR | This is a **required** parameter whereby you specify the Public Subnet1 CIDR  in Vpc CIDR. Default value is ```172.30.0.0/24```.|
+| PublicSubnet2CIDR | This is a **required** parameter whereby you specify the Public Subnet2 CIDR  in Vpc CIDR. Default value is ```172.30.1.0/24```.|
+| PublicSubnet3CIDR | This is a **required** parameter whereby you specify the Public Subnet3 CIDR  in Vpc CIDR. Default value is ```172.30.2.0/24```.|
+| RedshiftDatabaseName | This is a **required** parameter whereby you specify the name of the Redshift database. Default value is ```mozart```.|
+| RedshiftMasterUsername | This is a **required** parameter whereby you specify the name Redshift Master user name. Default value is ```admin```.|
+| RedshiftMasterUserPassword | This is a **required** parameter whereby you specify the name Redshift Master user password.|
+| RedshiftNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for Redshift cluster. Default value is ```ra3.4xlarge```.|
+| RedshiftNumberOfNodes | This is a **required** parameter whereby you specify the number of compute nodes in the Redshift cluster, which must be >= 2.|
+| RedshiftPortNumber | This is a **required** parameter whereby you specify the port number on which the Redshift cluster accepts incoming connections. Default value is ```5439```.|
+| RemoteAccessCIDR | This parameter specifies the public IP CIDR range from where you need remote access to your client desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
+| S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
+| UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|
+| VpcCIDR | This is a **required** parameter whereby you specify the [Amazon VPC](https://aws.amazon.com/vpc/?vpc-blogs.sort-by=item.additionalFields.createdDate&vpc-blogs.sort-order=desc) CIDR for the VPC created in the stack. Default value is 172.30.0.0/16. If you change this value, all the subnet parameters above may need to be set, as well.|
 
-Execute following command to verify data is being copied to EFS correctly:
+### <a name="PreloadFSx"></a>  Preload A2D2 data from S3 to FSx  
 
-	kubectl logs -f stage-efs-a2d2 -n a2d2
-	
-This step will take several hours to complete. To check if the step is complete, execute:
+*This step can be executed anytime after "Configure the data service infrastructure" step has been executed*
 
-	kubectl get pods stage-efs-a2d2 -n a2d2
+Amazon FSx for Lustre automatically lazy loads data from the configured S3 bucket. Therefore, this step is strictly a performance optimization step . However, for maximal performance, it is *highly recommended!*
+ 
 
-If the pod is still ```Running```, the step is not yet completed. This step takes approximately 14 hours to complete.
-
-## (Recommended optional step) Stage A2D2 data on FSx for Lustre 
-
-*FSx for Lustre automatically loads data from your S3 bucket when data is accessed for the first-time. Therefore, strictly speaking, this step is needed only if you plan to use FSx for Lustre as a data input source, and you want to pre-load A2D2 data to FSx for Lustre to accelerate performance on first-time data access. This step is recommended.*
-
-Edit ```a2d2/fsx/stage-data-a2d2.yaml``` and set the value of ```eks.amazonaws.com/role-arn``` to the ```ROLE``` output in the step "Create AWS IAM role for EKS pods", and set ```S3_BUCKET``` environment variable to your S3 bucket name. 
-
-Execute following command to start copying data from your S3 bucket to FSx for Lustre:
+Execute following command to start preloading data from your S3 bucket to the FSx file-system:
 
 	kubectl apply -n a2d2 -f a2d2/fsx/stage-data-a2d2.yaml
 
@@ -391,94 +295,30 @@ This step will take several hours to complete. To check if the step is complete,
 
 	kubectl get pods stage-fsx-a2d2 -n a2d2
 
-If the pod is still ```Running```, the step is not yet completed. This step takes approximately 9 hours to complete.
+If the pod is still ```Running```, the step has not yet completed. This step takes approximately 9 hours to complete.
 
-## Build and push Docker container image to Amazon ECR
 
-Before you execute this step, verify that you have access to ```docker``` daemon by executing this command:
+### <a name="PreloadEFS"></a> Preload A2D2 data from S3 to EFS 
 
-		docker ps -a
+*This step can be executed anytime after "Configure the data service infrastructure" step has been executed*
 
-If you get an error, this means you omitted to logout and login as noted above after the intial setup on the EC2 developer machine, so you may want to do that now.
+On first walk through of the tutorial, skip this step. This step is required **only** if you plan to configure the data service to use EFS as the raw data input source, otherwise, it may be safely skipped. 
 
-Next, we need to build and push required Docker image. We can buiild a Docker image for ```melodic``` or ```noetic``` [ros distribuion](http://wiki.ros.org/Distributions). Set ```<aws-region``` to your AWS Region in commands below.
+Execute following command to start preloading data from your S3 bucket to the EFS file-system:
 
-For ```melodic``` distribution, execute:
+	kubectl apply -n a2d2 -f a2d2/efs/stage-data-a2d2.yaml
 
-		cd a2d2 && ./build_tools/build_and_push.sh <aws-region> melodic-bionic && cd ..
+Execute following command to verify data is being copied to EFS correctly:
 
-For ```noetic``` distribution, execute:
-
-		cd a2d2 && ./build_tools/build_and_push.sh <aws-region> noetic-focal && cd ..
-
-Note the Amazon ECR URI for the docker image you just built: you will need it to configure the values for Helm charts in the steps below.
-
-## Use Helm chart to start data service
-
-For this step, we need to edit ```a2d2/charts/a2d2-data-service/values.yaml``` and set relevant values. Set ```a2d2.image.uri``` to your docker image's Amazon ECR URI. Set ```a2d2.serviceAccount.roleArn``` to the ```ROLE``` output in the step "Create AWS IAM role for EKS pods". Set ```configMap.servers``` to your plain-text [Amazon MSK](https://aws.amazon.com/msk/) cluster endpoint, available in Amazon MSK management console under MSK cluster client information. Set ```configMap.database.host``` to Redshift database endpoint host name (don't include port and database name), ```configMap.database.port``` to Redshift port, and ```configMap.database.password``` to your Redshift database password. Set ```configMap.data_store.input``` to ```fsx```, ```efs```, or ```s3```. For maximum performance option, use ```fsx```. For lowest cost option, use ```s3```. 
-
-To start the A2D2 data service, execute:
-
-		helm install --debug a2d2-data-service ./a2d2/charts/a2d2-data-service/
-
-To verify that the ```a2d2-data-service``` pod is running, execute the command
-
-		kubectl get pods -n a2d2
-		
-If you want to experiment with various data store input options, you will need to restart ```a2d2-data-service```. You can delete the running service by executing:
-
-		helm delete a2d2-data-service
-
-To run the A2D2 data service client, we will use a graphics EC2 desktop to run your A2D2 data service client, and use [rviz](http://wiki.ros.org/rviz) tool on the graphics desktop to visualize the data returned by the A2D2 data service.
- 
-## Launch graphics desktop for vizualization of rosbag files using rviz
-
-In this step, we will need information from the CloudFormation stack output. Specify your ```<stack-name>``` in following command, and save the command output because you will need it below:
-
-	aws cloudformation describe-stacks --stack-name <stack-name>
+	kubectl logs -f stage-efs-a2d2 -n a2d2
 	
-The actions below need you to use AWS Management Console in a browser, so they are best executed on your laptop, not on the EC2 developer machine we have been using so far. 
+This step will take several hours to complete. To check if the step is complete, execute:
 
-Next, we ```git clone``` this repository on your laptop in your home directory. After that, we launch [Nvidia Quadro Virtual Workstation - Ubuntu 18.04](https://aws.amazon.com/marketplace/pp/B07YV3B14W?qid=1599175893536&sr=0-1&ref_=srh_res_product_title) through EC2 console **in the same AWS region you have been working so far** with following configuration (see CloudFormation stack output):
+	kubectl get pods stage-efs-a2d2 -n a2d2
 
-* Select ```g4dn.2xlarge``` EC2 instance type
-* Use the VPC created in the CloudFormation stack
-* Use one of the public subnets created in the CloudFormation stack ( see "VpcPublicSubnets" in the CloudFormation stack output above)
-* Set **Auto-assign Public IP** to "Enable"
-* Set **IAM role** to ```XXXXX-DesktopInstanceProfile-XXXXXXXXXXXXX``` (see "DesktopInstanceProfile" in the CloudFormation stack output above)
-* Under Advanced Details, select **User data** "As file" and "Choose file" ```scripts/desktop-melodic-bionic.sh``` from this repository as user data for the new EC2 instance
-* Specify at least 100 GB EBS gp2 storage volume for root device
-* Choose the existing security group ```XXXXXX-DesktopSecurityGroup-XXXXXXXXXXXX``` (see "DesktopSecurityGroup" in the CloudFormation stack output above)
-* Select the same key pair you used when you created your EC2 developer instance above
-	
-After the desktop instance is launched and ```Running```, wait at least 10 minutes before logging in. This will allow sufficient time for user data script execution to complete.
+If the pod is still ```Running```, the step has not yet completed. This step takes approximately 9 hours to complete.
 
-Next, we need to execute following steps:
 
-* ```ssh``` into the desktop. 
-* Execute ```sudo passwd ubuntu``` to set a new password for user ```ubuntu```. 
-* Clone this ```git``` repository under user ```ubuntu``` home directory, and ```cd``` to the directory containing this repository.
-* Install the latest FSx for Lustre client modules by executing: ```sudo apt install -y lustre-client-modules-$(uname -r)```
-* Execute ```sudo mkdir /fsx```
-* Using instructions available in AWS FSx management console, attach the FSx for Lustre file-system created in the CloudFormation stack on ```/fsx``` directory on the EC2 desktop.
-* Optionally, if you are planning to use EFS file system:
-	* ```sudo mkdir /efs```
-	* Using instructions available in AWS EFS management console, attach the EFS file-system created in the CloudFormation stack on ```/efs``` directory on the EC2 desktop. 
-* Logout from SSH session. 
-* Install [NICE DCV client](https://docs.aws.amazon.com/dcv/latest/userguide/client.html) on your laptop and use the DCV client to login to the graphics desktop instance as user ```ubuntu```. Use the password for user ```ubuntu``` that you created above.
 
-* On the graphics desktop, use the terminal to start ```rviz``` and set ```./a2d2/config/a2d2.rviz``` as the ```rviz``` config file. 
-* From the directory containing this repository, execute the command below:
 
-		cp ./a2d2/config/c-config-ex1.json /tmp/c-config.json
-  
-  Edit the ```servers``` in ```/tmp/c-config.json``` file to the Amazon MSK plaintext endpoint. This should be the same endpoint you used to configure your data service above. Set ```requests.preview``` to ```false``` if you want to see complete data.
-* Run A2D2 data service client using the command:
-
-		python ./a2d2/src/data_client.py --config /tmp/c-config.json 1>/tmp/a.out 2>&1 & 
-	
-
-### Killing data service client
-
-If you kill the data service client before it exits normally, be sure to clean up all the processes spawned by the data client. Killing the client does not stop the data service from sending the data to the client, as the data information is being sent asynchronously over a Kafka topic. If the client is aborted by the user, the data service will still send back the requested data and the data will remain stored on the output data store specified in the ```requests.accept``` in client configuration file.
 
