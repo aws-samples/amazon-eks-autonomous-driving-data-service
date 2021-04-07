@@ -9,7 +9,7 @@ The typical use case addressed by this data service is to serve a single [```ros
 
 ## Key concepts
 
-The data service runs in [Kubernetes Pods](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster. An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) cluster provides the communication channel between thhe data client, and the data service. The data service implements a *request-response* paradigm over Kafka topics. However, the response data is not sent back over the Kafka topics. Instead, the data service stages the response data in Amazon S3, Amazon FSx, or Amazon EFS, as specified in the data service configuration.
+The data service runs in [Kubernetes Pods](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster. An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) cluster provides the communication channel between the data client, and the data service. The data service implements a *request-response* paradigm over Kafka topics. However, the response data is not sent back over the Kafka topics. Instead, the data service stages the response data in Amazon S3, Amazon FSx, or Amazon EFS, as specified in the data service configuration.
 
 ### Data client request
 Concretely, imagine the data client wants to request drive scene  data in ```rosbag``` file format from [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) for drive scene id ```20190401145936```, starting at timestamp ```1554121593909500``` (microseconds) , and stopping at timestamp ```1554122334971448``` (microseconds). 
@@ -135,7 +135,7 @@ To extract the compressed public [A2D2 dataset](https://registry.opendata.aws/ae
 
 You need to wait for this script command to be completed before proceeding with the following steps. **It may take up to 24 hours to extract the A2D2 dataset into your S3 bucket.** 
 
-### ETL metadata from Amazon S3 Amazon Redshift
+### ETL metadata to Redshift
 
 Once the previous step is complete, you are ready to extract the metadata from the raw data, and load it into the Redshift database: We do this in two steps. 
 
