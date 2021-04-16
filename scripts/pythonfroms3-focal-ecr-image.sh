@@ -21,7 +21,7 @@ region=$(aws configure get region)
   
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-image=pythonfrom3
+image=pythonfroms3
 tag=focal
 
 # Get the account number associated with the current IAM credentials
