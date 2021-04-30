@@ -19,6 +19,7 @@ import boto3
 import os
 import tarfile
 import time
+from boto3.s3.transfer import TransferConfig
 
 from multiprocessing import Process
 import logging
@@ -47,28 +48,81 @@ class S3TarExtractor(Process):
         session = boto3.session.Session()
         self.s3_client = session.client('s3')
     
+    def _is_tar_extracted(self):
+        _extracted = True
+        
+        try:
+            self.logger.info(f'Checking: s3://{self.dest_bucket}/{self.dest_prefix}/, process index: {self.process_index}')
+            file_index = 0
+
+            with tarfile.open(self.tar_path) as tar_obj:
+                while True:
+                    member = tar_obj.next()
+                    if not member:
+                        break
+                    
+                    if (file_index % self.process_count == self.process_index) and member.isfile():
+                        key = self._dest_key(member.name)
+                        response = self.s3_client.head_object(Bucket=self.dest_bucket, Key=key)
+                        if response['ContentLength'] != member.size:
+                            _extracted = False
+                            break
+                    file_index += 1
+
+        except Exception as e:
+            print(e)
+            _extracted = False
+
+        return _extracted
+
+    def _dest_key(self, member_name):
+        dest_key = member_name
+
+        if dest_key.startswith("./"):
+            dest_key = dest_key[2:]
+        elif dest_key.startswith("/"):
+            dest_key = dest_key[1:]
+        
+        return f'{self.dest_prefix}/{dest_key}'
+
     def run(self):
-    
         file_index = 0
+
+        if self._is_tar_extracted():
+            self.logger.info(f'Skipping: {self.tar_path}, process index: {self.process_index}')
+            return
+
         self.logger.info(f'extracting: {self.tar_path}, process index: {self.process_index}')
         with tarfile.open(self.tar_path) as tar_obj:
-            for member in tar_obj.getmembers():
-                if member.isfile():
-                    if file_index % self.process_count == self.process_index:
-                        file_reader = tar_obj.extractfile(member)
-                        if file_reader:
+            while True:
+                member = tar_obj.next()
+                if not member:
+                    break
+
+                if (file_index % self.process_count == self.process_index) and member.isfile():
+                    nattempt = 0
+                    while nattempt < 3:
+                        try:
+                            file_reader = tar_obj.extractfile(member)
                             self.s3_client.put_object(Body=file_reader, 
                                 Bucket=self.dest_bucket, 
-                                StorageClass='INTELLIGENT_TIERING',
-                                Key=f'{self.dest_prefix}/{member.name}')
+                                Key=self._dest_key(member.name))
                             file_reader.close()
+                            break
+                        except Exception:
+                            nattempt += 1
+                            time.sleep(nattempt)
+                    if nattempt >= 3:
+                        import sys
+                        self.logger.error(f'failed: {self.tar_path}, process index: {self.process_index}')
+                        sys.exit(1)
                     
-                    file_index += 1
+                file_index += 1
 
         self.logger.info(f'completed: {self.tar_path}, process index: {self.process_index}')
 
 def main(args):
-    start = time.time()
+    
 
     s3_client = boto3.client('s3')
     source_bucket = args.source_bucket
@@ -81,8 +135,9 @@ def main(args):
     file_path = os.path.join(tmpdir, file_name)
     with open(file_path, 'wb') as data:
         print(f"downloading: s3://{source_bucket}/{source_key}")
-        s3_client.download_fileobj(source_bucket, source_key, data)
-        print(f"downloaded: s3://{source_bucket}/{source_key} --> {file_path} ")
+        start = time.time()
+        s3_client.download_fileobj(source_bucket, source_key, data, Config=TransferConfig())
+        print(f"downloaded: s3://{source_bucket}/{source_key} --> {file_path} {time.time() - start} s")
     data.close()
 
     if tarfile.is_tarfile(file_path):
@@ -119,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument('--dest-bucket', type=str,  help='S3 dest bucket', required=True)
     parser.add_argument('--source-key', type=str,  help='S3 source object key', required=True)
     parser.add_argument('--dest-prefix', type=str,  help='S3 dest prefix', required=True)
-    parser.add_argument('--process-count', type=int,  default=10, help='concurrent process count', required=False)
+    parser.add_argument('--process-count', type=int,  default=8, help='concurrent process count', required=False)
     
     args = parser.parse_args()
     main(args)
