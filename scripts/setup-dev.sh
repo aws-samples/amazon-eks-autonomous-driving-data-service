@@ -15,52 +15,80 @@
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-if [[ ! -f ~/.aws/credentials ]] 
-then
-	aws configure
-fi
+DIR=$scripts_dir/..
 
 # set aws region
 aws_region=$(aws configure get region)
 [[ -z "${aws_region}" ]] && echo "aws_region env variable is required" && exit 1
-echo "AWS Region: $aws_region"
-
-# set s3 bucket name
 [[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name env variable is required" && exit 1
-echo "S3 Bucket Name: $s3_bucket_name"
+[[ -z "${redshift_cluster_host}" ]] && echo "redshift_cluster_host variable required" && exit 1
+[[ -z "${redshift_cluster_port}" ]] && echo "redshift_cluster_port variable required" && exit 1
+[[ -z "${redshift_cluster_username}" ]] && echo "redshift_cluster_username variable required" && exit 1
+[[ -z "${redshift_cluster_dbname}" ]] && echo "redshift_cluster_dbname variable required" && exit 1
+[[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
+[[ -z "${msk_cluster_arn}" ]] && echo "msk_cluster_arn variable required" && exit 1
+[[ -z "${eks_pod_sa_role_arn}" ]] && echo "eks_pod_sa_role_arn variable required" && exit 1
+[[ -z "${eks_node_role_arn}" ]] && echo "eks_node_role_arn variable required" && exit 1
 
-# set eks cluster name
-[[ -z "${eks_cluster_name}" ]] && echo "eks_cluster_name env variable is required" && exit 1
-echo "EKS Cluster Name: $eks_cluster_name"
+MSK_SERVERS=$(aws kafka --region ${aws_region} get-bootstrap-brokers \
+        	--cluster-arn ${msk_cluster_arn} | \
+            grep \"BootstrapBrokerString\"  | \
+            awk '{split($0, a, " "); print a[2]}')
 
-# configure kubectl
-echo "configure kubectl"
-aws sts get-caller-identity
-aws eks --region $aws_region update-kubeconfig --name $eks_cluster_name
+# update helm charts values.ymal and example client config files
+sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+    -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
+    -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
+    -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
+    -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
+    -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
+    -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
+    $DIR/a2d2/charts/a2d2-data-service/values.yaml
 
-# verify kubectl works
-kubectl get svc || { echo 'kubectl configuration failed' ; exit 1; }
-chmod go-rwx $HOME/.kube/config
+sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+        $DIR/a2d2/config/c-config-ex1.json
+                  
+sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+        $DIR/a2d2/config/c-config-ex2.json
+             
+# Create kafka.config 
+cat >$DIR/a2d2/config/kafka.config <<EOL
+{
+    "config-name": "${cfn_stack_name}-configuration",
+    "config-description": "${cfn_stack_name} Kafka configuration",
+    "cluster-arn": "${msk_cluster_arn}",
+    "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"
+}
+EOL
+chown ubuntu:ubuntu $DIR/a2d2/config/kafka.config
 
-# update aws-auth config map
-if [[ -f $scripts_dir/../a2d2/config/aws-auth.yaml ]]
-then
-	echo "Apply configmap: $scripts_dir/../a2d2/config/aws-auth.yaml"
-	kubectl apply -f $scripts_dir/../a2d2/config/aws-auth.yaml -n kube-system
-fi
+#Update MSK cluster config
+echo "Update MSK cluster configuration"
+python3 $scripts_dir/update-kafka-cluster-config.py --config $DIR/a2d2/config/kafka.config
+
+# Update yaml files for creating EFS and FSx persistent-volume
+sed -i -e "s/volumeHandle: .*/volumeHandle: ${efs_id}/g" \
+    $DIR/a2d2/efs/pv-efs-a2d2.yaml
+
+sed -i -e "s/volumeHandle: .*/volumeHandle: ${fsx_id}/g" \
+    -e "s/dnsname: .*/dnsname: ${fsx_id}.fsx.${aws_region}.amazonaws.com/g" \
+    -e "s/mountname: .*/mountname: ${fsx_mount_name}/g"  \
+	$DIR/a2d2/fsx/pv-fsx-a2d2.yaml
+
+# Update eks pod sa role in yaml files used for staging data
+sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
+    -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/fsx/stage-data-a2d2.yaml
+
+sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
+    -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/efs/stage-data-a2d2.yaml
 
 # create a2d2 namespace
 kubectl create namespace a2d2
 
-# configure open id provider in our EKS cluster
-echo "Create EKS cluster IAM OIDC provider"
-eksctl utils associate-iam-oidc-provider --region $aws_region --name $eks_cluster_name --approve
-
 # deploy AWS EFS CSI driver
 echo "Deploy AWS EFS CSI Driver"
 $scripts_dir/deploy-efs-csi-driver.sh
-kubectl apply -f $scripts_dir/../a2d2/efs/efs-sc.yaml
+kubectl apply -f $DIR/a2d2/efs/efs-sc.yaml
 
 # deploy AWS FSx CSI driver
 echo "Deploy AWS FSx CSI Driver"
@@ -68,22 +96,14 @@ $scripts_dir/deploy-fsx-csi-driver.sh
 
 # create EFS persistent volume
 echo "Create k8s persistent-volume and persistent-volume-claim for efs"
-kubectl apply -n a2d2 -f $scripts_dir/../a2d2/efs/pv-efs-a2d2.yaml
-kubectl apply -n a2d2 -f $scripts_dir/../a2d2/efs/pvc-efs-a2d2.yaml
+kubectl apply -n a2d2 -f $DIR/a2d2/efs/pv-efs-a2d2.yaml
+kubectl apply -n a2d2 -f $DIR/a2d2/efs/pvc-efs-a2d2.yaml
 
 # create FSx persistent volume
 echo "Create k8s persistent-volume and persistent-volume-claim for fsx"
-kubectl apply -n a2d2 -f $scripts_dir/../a2d2/fsx/pv-fsx-a2d2.yaml
-kubectl apply -n a2d2 -f $scripts_dir/../a2d2/fsx/pvc-fsx-a2d2.yaml
+kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
+kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pvc-fsx-a2d2.yaml
 kubectl get pv -n a2d2
 
-# create k8s pod role
-echo "Create EKS Pod role"
-$scripts_dir/create-eks-sa-role.sh $eks_cluster_name $s3_bucket_name
-
-#Update MSK cluster config
-echo "Update MSK cluster configuration"
-python3 $scripts_dir/update-kafka-cluster-config.py --config $scripts_dir/../a2d2/config/kafka.config
-
-# remove credentials
-rm  ~/.aws/credentials && echo "AWS Credentials Removed"
+# Build ECR image
+$scripts_dir/build-ecr-image.sh

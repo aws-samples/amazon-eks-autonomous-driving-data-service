@@ -21,6 +21,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import psycopg2
+import boto3
 
 import sys, traceback
 import threading, logging, time
@@ -46,8 +47,10 @@ class DatabaseReader:
             user = self.dbconfig["user"]
             password = self.dbconfig["password"]
 
+            secrets_client = boto3.client('secretsmanager')
+            response = secrets_client.get_secret_value(SecretId=password)
             self.con=psycopg2.connect(dbname=dbname, host=host, port=port, 
-                    user=user, password=password)
+                    user=user, password=response['SecretString'])
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)

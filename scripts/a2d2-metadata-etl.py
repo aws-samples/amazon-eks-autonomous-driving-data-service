@@ -26,10 +26,11 @@ from pyspark.sql.functions import udf, lit
 from awsglue.utils import getResolvedOptions
 from awsglue.context import GlueContext
 
-args = getResolvedOptions(sys.argv, ['s3_bucket'])
+args = getResolvedOptions(sys.argv, ['s3_bucket', 's3_output_prefix'])
 
 # set your bucket name below
 s3_bucket= args['s3_bucket']
+s3_output_prefix = args['s3_output_prefix']
 s3_prefix = "a2d2/camera_lidar/*/camera/*/*.json" 
 print(f"s3_bucket: {s3_bucket}")
 
@@ -85,7 +86,7 @@ df_image = df_clean.select(lit("a2d2").alias("vehicle_id"),
                       s3_key_udf(df_clean.image_png, df_clean.cam_name).alias('s3_key'))
 
 #save prepared data frame S3 bucket
-df_image.write.save(f"s3://{s3_bucket}/emr/a2d2/image/v1", format='csv', header=True)
+df_image.write.save(f"s3://{s3_bucket}/{s3_output_prefix}/image", format='csv', header=True)
 
 df_pcld = df_clean.select(lit("a2d2").alias("vehicle_id"), 
                       scene_id_udf(df_clean.pcld_npz).alias('scene_id'), 
@@ -94,4 +95,4 @@ df_pcld = df_clean.select(lit("a2d2").alias("vehicle_id"),
                       lit(s3_bucket).alias('s3_bucket'),
                       s3_key_udf(df_clean.pcld_npz, df_clean.cam_name).alias('s3_key'))
 
-df_pcld.write.save(f"s3://{s3_bucket}/emr/a2d2/pcld/v1", format='csv', header=True)
+df_pcld.write.save(f"s3://{s3_bucket}/{s3_output_prefix}/pcld", format='csv', header=True)

@@ -21,7 +21,7 @@ import json
 import random
 import string
 import time
-
+import boto3
 
 def main(config):
     logger = logging.getLogger("data_service")
@@ -30,12 +30,14 @@ def main(config):
         level=logging.INFO)
 
     try:
+        secrets_client = boto3.client('secretsmanager')
+        response = secrets_client.get_secret_value(SecretId=config['password'])
         conn = psycopg2.connect(dbname=config['dbname'], 
                         host=config['host'], 
                         port=config['port'], 
                         user=config['user'], 
-                        password=config['password'])
-        cur = conn.cursor();
+                        password=response['SecretString'])
+        cur = conn.cursor()
 
         for query in config['queries']:
             logger.info(f"Executing {query}")
@@ -46,7 +48,7 @@ def main(config):
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-        self.logger.error(str(e))
+        logger.error(str(e))
             
     
 import argparse

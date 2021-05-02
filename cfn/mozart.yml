@@ -8,50 +8,50 @@ Parameters:
     Type: String
     AllowedPattern: '[a-zA-Z0-9][a-zA-Z0-9-\.]{2,62}'
 
-  RemoteAccessCIDR:
-    Description: Remote access CIDR
+  DesktopRemoteAccessCIDR:
+    Description: Remote access Ip V4 CIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
   VpcCIDR:
     Default: 172.30.0.0/16
-    Description: Vpc CIDR. Advanced option.
+    Description: (Advanced) Vpc CIDR. Do not use 192.168.0.0 range.
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
-  PublicSubnet1CIDR:
+  VpcPublicSubnet1CIDR:
     Default: 172.30.0.0/24
-    Description: Public Subnet1 CIDR inside Vpc CIDR
+    Description: (Advanced) Public Subnet1 CIDR inside VpcCIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
-  PublicSubnet2CIDR:
+  VpcPublicSubnet2CIDR:
     Default: 172.30.1.0/24
-    Description: Public Subnet2 CIDR inside Vpc CIDR
+    Description: (Advanced) Public Subnet2 CIDR inside VpcCIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
-  PublicSubnet3CIDR:
+  VpcPublicSubnet3CIDR:
     Default: 172.30.2.0/24
-    Description: Public Subnet3 CIDR inside Vpc CIDR
+    Description: (Advanced)  Public Subnet3 CIDR inside VpcCIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
-  PrivateSubnet1CIDR:
+  VpcPrivateSubnet1CIDR:
     Default: 172.30.64.0/18
-    Description: Private Subnet1 CIDR inside Vpc CIDR
+    Description: (Advanced)  Private Subnet1 CIDR inside VpcCIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
-  PrivateSubnet2CIDR:
+  VpcPrivateSubnet2CIDR:
     Default: 172.30.128.0/18
-    Description: Private Subnet2 CIDR inside Vpc CIDR
+    Description: (Advanced)  Private Subnet2 CIDR inside VpcCIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
-  PrivateSubnet3CIDR:
+  VpcPrivateSubnet3CIDR:
     Default: 172.30.192.0/18
-    Description: Private Subnet2 CIDR inside Vpc CIDR
+    Description: (Advanced)  Private Subnet2 CIDR inside VpcCIDR
     AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
     Type: String
 
@@ -72,7 +72,6 @@ Parameters:
     Type: String
     Default: ra3.4xlarge
     AllowedValues:
-    - ra3.xlplus
     - ra3.4xlarge
     - ra3.16xlarge
     - ds2.xlarge
@@ -121,16 +120,10 @@ Parameters:
     Default: 7200
 
   FSxS3ImportPrefix:
-    Description: Optional FSx S3 prefix for importing data, e.g foo/bar/
+    Description: (Optional) FSx S3 prefix for importing data
     Type: String
     AllowedPattern: '^(?!/)[a-zA-Z0-9-_\./]*'
-    Default: ""
- 
-  EKSEncryptSecrets:
-    Description: Encrypt EKS secrets
-    Type: String
-    AllowedValues: [Enabled, Disabled]
-    Default: Enabled
+    Default: "a2d2"
 
   EKSEncryptSecretsKmsKeyArn:
     Description: Encrypt EKS Secrets Key ARN (Leave blank to create)
@@ -241,8 +234,8 @@ Parameters:
   DesktopEbsVolumeSize:
     Description: Desktop EBS volume size (GiB) 
     Type: Number
-    MinValue: 500
-    Default: 500
+    MinValue: 200
+    Default: 200
 
   DesktopEbsVolumeType:
     Default: 'gp3'
@@ -275,10 +268,7 @@ Parameters:
      - "noetic"
 
 Conditions:
-  CreateEksKey: !And
-    - !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
-    - !Equals [ !Ref EKSEncryptSecrets, Enabled ]
-  EnableEksEncryption: !Equals [ !Ref EKSEncryptSecrets, Enabled ]
+  CreateEksKey: !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
   OverrideAMI: !Not 
     - !Equals 
       - !Ref UbuntuAMI
@@ -337,7 +327,7 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Ref 'AWS::StackName'
+          Value: !Sub '${AWS::StackName}-data-service'
   InternetGateway:
     Type: 'AWS::EC2::InternetGateway'
     Properties:
@@ -359,7 +349,7 @@ Resources:
         Fn::Select: 
           - 0
           - Fn::GetAZs: ""
-      CidrBlock: !Ref PublicSubnet1CIDR
+      CidrBlock: !Ref VpcPublicSubnet1CIDR
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Network
@@ -378,7 +368,7 @@ Resources:
         Fn::Select: 
           - 1
           - Fn::GetAZs: ""
-      CidrBlock: !Ref PublicSubnet2CIDR
+      CidrBlock: !Ref VpcPublicSubnet2CIDR
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Network
@@ -397,7 +387,7 @@ Resources:
         Fn::Select: 
           - 2
           - Fn::GetAZs: ""
-      CidrBlock: !Ref PublicSubnet3CIDR
+      CidrBlock: !Ref VpcPublicSubnet3CIDR
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Network
@@ -416,7 +406,7 @@ Resources:
         Fn::Select: 
           - 0
           - Fn::GetAZs: ""
-      CidrBlock: !Ref PrivateSubnet1CIDR
+      CidrBlock: !Ref VpcPrivateSubnet1CIDR
       Tags:
         - Key: Network
           Value: Private
@@ -434,7 +424,7 @@ Resources:
         Fn::Select: 
           - 1
           - Fn::GetAZs: ""
-      CidrBlock: !Ref PrivateSubnet2CIDR
+      CidrBlock: !Ref VpcPrivateSubnet2CIDR
       Tags:
         - Key: Network
           Value: Private
@@ -452,7 +442,7 @@ Resources:
         Fn::Select: 
           - 2
           - Fn::GetAZs: ""
-      CidrBlock: !Ref PrivateSubnet3CIDR
+      CidrBlock: !Ref VpcPrivateSubnet3CIDR
       Tags:
         - Key: Network
           Value: Private
@@ -523,6 +513,13 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NATGateway
+  PrivatePeeringRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "192.168.0.0/23"
+      VpcPeeringConnectionId: !Ref BatchFargateVpcPeering
+
   PrivateSubnet1RouteAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     DependsOn: [ PrivateRoute ]
@@ -547,14 +544,17 @@ Resources:
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
-          - 
-            Effect: "Allow"
+          - Effect: "Allow"
             Principal: "*"
             Action: 
-              - "s3:*"
+              - "s3:Get*"
+              - "s3:List*"
+              - "s3:PutObject*"
+              - "s3:DeleteObject*"
             Resource: "*"
       RouteTableIds:
         - !Ref PrivateRouteTable
+        - !Ref PublicRouteTable
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
       VpcId: !Ref Vpc
   VpcEcrApiEndpoint:
@@ -567,8 +567,7 @@ Resources:
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
-          - 
-            Effect: "Allow"
+          - Effect: "Allow"
             Principal: "*"
             Action: 
               - "ecr:*"
@@ -595,7 +594,25 @@ Resources:
       ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
       VpcEndpointType: 'Interface'
       VpcId: !Ref Vpc
-
+  VpcSecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: PrivateSubnet1
+        - Ref: PrivateSubnet2
+        - Ref: PrivateSubnet3
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "secretsmanager:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref Vpc
   VpcSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -604,17 +621,15 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref 'AWS::StackName'
-
   VpcSecurityGroupIngress: 
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
       Description: Ingress from within the VPC security group
       GroupId: !GetAtt VpcSecurityGroup.GroupId
       IpProtocol: tcp
-      FromPort: 0
-      ToPort: 65535
+      FromPort: 988
+      ToPort: 9094
       SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
-
   VpcSecurityGroupCIDRIngress: 
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
@@ -622,9 +637,8 @@ Resources:
       GroupId: !GetAtt VpcSecurityGroup.GroupId
       CidrIp: !Ref VpcCIDR
       IpProtocol: tcp
-      FromPort: 0
-      ToPort: 65535
-
+      FromPort: 988
+      ToPort: 9094
   VpcSecurityGroupCIDREgress: 
     Type: 'AWS::EC2::SecurityGroupEgress'
     Properties:
@@ -649,7 +663,7 @@ Resources:
     Properties:
       Description: Ingress from CIDR for NICE-DCV access to graphics desktop
       GroupId: !GetAtt DesktopSecurityGroup.GroupId
-      CidrIp: !Ref RemoteAccessCIDR
+      CidrIp: !Ref DesktopRemoteAccessCIDR
       IpProtocol: tcp
       FromPort: 8443
       ToPort: 8443
@@ -659,7 +673,7 @@ Resources:
     Properties:
       Description: Ingress from CIDR for SSH access to graphics desktop
       GroupId: !GetAtt DesktopSecurityGroup.GroupId
-      CidrIp: !Ref RemoteAccessCIDR
+      CidrIp: !Ref DesktopRemoteAccessCIDR
       IpProtocol: tcp
       FromPort: 22
       ToPort: 22
@@ -697,6 +711,13 @@ Resources:
                   - !Sub 'arn:aws:s3:::${S3Bucket}'
                   - !Sub 'arn:aws:s3:::${S3Bucket}/*'
           PolicyName: 'RedshiftClusterPolicy'
+
+  RedshiftMasterUserPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties: 
+      Description: "Redshift database master user password"
+      SecretString: 
+        !Ref RedshiftMasterUserPassword
 
   RedshiftCluster:
     Type: AWS::Redshift::Cluster
@@ -762,7 +783,17 @@ Resources:
       FromPort: !Ref RedshiftPortNumber
       ToPort: !Ref RedshiftPortNumber
       SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
-  
+
+  RedshiftSecurityGroupBatchFargateIngress: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from batch fargate VPC security group to RedShift database
+      GroupId: !GetAtt RedshiftSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: !Ref RedshiftPortNumber
+      ToPort: !Ref RedshiftPortNumber
+      SourceSecurityGroupId: !GetAtt BatchFargateSecurityGroup.GroupId
+
   RedshiftSecurityGroupCIDRIngress: 
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
@@ -892,12 +923,10 @@ Resources:
         - Ref: PrivateSubnet1
         - Ref: PrivateSubnet2
         - Ref: PrivateSubnet3
-      EncryptionConfig: !If
-        - EnableEksEncryption
-        - - Resources: [ secrets ]
-            Provider:
-              KeyArn: !If [ CreateEksKey, !GetAtt KMSKey.Arn, !Ref EKSEncryptSecretsKmsKeyArn ]
-        - !Ref AWS::NoValue
+      EncryptionConfig: 
+        - Resources: [ secrets ]
+          Provider:
+            KeyArn: !If [ CreateEksKey, !GetAtt KMSKey.Arn, !Ref EKSEncryptSecretsKmsKeyArn ]
       RoleArn: !GetAtt EksControlPlaneRole.Arn
       Version: !Ref KubernetesVersion
 
@@ -961,6 +990,57 @@ Resources:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
       Path: /
 
+  EksPodServiceAccountRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument: !Sub
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${ClusterOIDCPath}"
+                  },
+                  "Action": "sts:AssumeRoleWithWebIdentity",
+                  "Condition": {
+                    "StringEquals": {
+                      "${ClusterOIDCPath}:aud": "sts.amazonaws.com"
+                    }
+                  }
+                }
+              ]
+            }   
+          - ClusterOIDCPath: !Join 
+            - ''
+            - - 'oidc.eks.'
+              - !Ref 'AWS::Region'
+              - '.amazonaws.com/id/'
+              - !Select [0, !Split ['.', !Select [1, !Split ['//', !GetAtt EksControlPlane.Endpoint]]]]     
+      Policies:
+        - PolicyName: 'eks-sa-role-poliicy'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - "s3:Get*"
+                  - "s3:List*"
+                  - "s3:PutObject*"
+                  - "s3:DeleteObject*"
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3Bucket}'
+                  - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+        - PolicyName: eks-pod-secretsmanager-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                Resource:
+                  - !Ref RedshiftMasterUserPasswordSecret
+
   EKSNodeGroupPrivate:
     Type: AWS::EKS::Nodegroup
     Properties: 
@@ -983,7 +1063,6 @@ Resources:
       - Ref: PrivateSubnet1
       - Ref: PrivateSubnet2
       - Ref: PrivateSubnet3
-
   FSxFileSystem:
     Type: AWS::FSx::FileSystem
     DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngress ]
@@ -1002,17 +1081,16 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref 'AWS::StackName'
-
   EFSFileSystem:
     Type: 'AWS::EFS::FileSystem'
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       Encrypted : true
       PerformanceMode: generalPurpose
       FileSystemTags:
         - Key: Name
-          Value: !Ref 'AWS::StackName'
+          Value: !Sub '${AWS::StackName}-data-service'
   MountTarget1:
     Type: 'AWS::EFS::MountTarget'
     DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngress ]
@@ -1064,8 +1142,479 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::${S3Bucket}'
                   - !Sub 'arn:aws:s3:::${S3Bucket}/*'
-          PolicyName: 'GlueJobRoleS3Policy'
-    
+          PolicyName: 'glue-job-role-s3-poliicy'
+  
+  BatchFargateVpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: "192.168.0.0/23"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-batch-fargate'
+  
+  BatchFargateVpcPeering:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      PeerVpcId: !Ref Vpc
+      VpcId: !Ref BatchFargateVpc
+
+  BatchFargateInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Network
+          Value: Public
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+  BatchFargateGatewayToInternet:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      InternetGatewayId: !Ref BatchFargateInternetGateway
+  BatchFargatePublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      AvailabilityZone: 
+        Fn::Select: 
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: "192.168.0.0/24"
+  BatchFargatePublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    DependsOn: BatchFargateGatewayToInternet
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      Tags:
+        - Key: Network
+          Value: Public
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+  BatchFargatePublicRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref BatchFargatePublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BatchFargateInternetGateway
+  BatchFargatePublicSubnetRouteAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn: [ BatchFargatePublicRoute ]
+    Properties:
+      SubnetId: !Ref BatchFargatePublicSubnet
+      RouteTableId: !Ref BatchFargatePublicRouteTable
+
+  BatchFargatePrivateSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      AvailabilityZone: 
+        Fn::Select: 
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: "192.168.1.0/24"
+  BatchFargateNATGatewayEIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+  BatchFargateNATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    DependsOn: BatchFargateGatewayToInternet
+    Properties:
+      AllocationId: !GetAtt 
+        - BatchFargateNATGatewayEIP
+        - AllocationId
+      SubnetId: !Ref BatchFargatePublicSubnet
+  BatchFargatePrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      Tags:
+        - Key: Network
+          Value: Private
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+  BatchFargatePrivateRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref BatchFargatePrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref BatchFargateNATGateway
+  
+  BatchFargatePrivatePeeringRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref BatchFargatePrivateRouteTable
+      DestinationCidrBlock: !Ref VpcCIDR
+      VpcPeeringConnectionId: !Ref BatchFargateVpcPeering
+
+  BatchFargatePrivateSubnetRouteAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn: [ BatchFargatePrivateRoute ]
+    Properties:
+      SubnetId: !Ref BatchFargatePrivateSubnet
+      RouteTableId: !Ref BatchFargatePrivateRouteTable
+  
+  
+
+  BatchFargateSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Batch Fargate security group
+      VpcId: !Ref BatchFargateVpc
+      Tags:
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+  BatchFargateSecurityGroupIngress: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group
+      GroupId: !GetAtt BatchFargateSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !GetAtt BatchFargateSecurityGroup.GroupId
+  BatchFargateSecurityGroupCIDREgress: 
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      Description: Egress rule for out bound traffic
+      GroupId: !GetAtt BatchFargateSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      CidrIp: '0.0.0.0/0'
+  
+  BatchFargateEcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: BatchFargatePrivateSubnet
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "ecr:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref BatchFargateVpc
+  BatchFargateEcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: BatchFargatePrivateSubnet
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "ecr:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref BatchFargateVpc
+  BatchFargateEcsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: BatchFargatePrivateSubnet
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "ecs:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecs
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref BatchFargateVpc
+  BatchFargateEcsAgentEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: BatchFargatePrivateSubnet
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "ecs:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecs-agent
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref BatchFargateVpc
+  BatchFargateEcsTelemetryEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: BatchFargatePrivateSubnet
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "ecs:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecs-telemetry
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref BatchFargateVpc
+  BatchFargateSecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Ref: BatchFargatePrivateSubnet
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "secretsmanager:*"
+            Resource: "*"
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcEndpointType: 'Interface'
+      VpcId: !Ref BatchFargateVpc
+
+  BatchFargateEfsFileSystem:
+    Type: 'AWS::EFS::FileSystem'
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Encrypted : true
+      PerformanceMode: maxIO
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-batch-fargate'
+
+  BatchFargateEfsAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties: 
+      FileSystemId: !Ref BatchFargateEfsFileSystem
+  BatchFargateMountTarget:
+    Type: 'AWS::EFS::MountTarget'
+    DependsOn: [ BatchFargatePrivateSubnetRouteAssociation, BatchFargateSecurityGroupIngress ]
+    Properties:
+      FileSystemId:  !Ref BatchFargateEfsFileSystem
+      SubnetId: !Ref BatchFargatePrivateSubnet
+      SecurityGroups:
+        - !Ref BatchFargateSecurityGroup
+
+  BatchServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - batch.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole'
+  
+  BatchExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ecs-tasks.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - "elasticfilesystem:ClientMount"
+                  - "elasticfilesystem:ClientWrite"
+                Resource: 
+                  - !GetAtt BatchFargateEfsFileSystem.Arn
+                Condition:
+                  StringEquals:
+                    "elasticfilesystem:AccessPointArn": !GetAtt BatchFargateEfsAccessPoint.Arn
+          PolicyName: 'batch-execution-efs-policy'
+  
+  StepFunctionsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - states.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEventBridgeFullAccess'
+      Policies:
+        - PolicyName: steps-batch-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "batch:SubmitJob"
+                Resource:
+                  - !Ref FargateJobQueue
+                  - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/*'
+              - Effect: Allow
+                Action:
+                  - "batch:DescribeJobs"
+                Resource:
+                  - "*"
+        - PolicyName: steps-lambda-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource:
+                  - "*"
+  BatchJobRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ecs-tasks.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: 'batch-job-s3-policy'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - "s3:Get*"
+                  - "s3:List*"
+                  - "s3:PutObject*"
+                  - "s3:DeleteObject*"
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${S3Bucket}'
+                  - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+              - Effect: Allow
+                Action: 
+                  - "s3:Get*"
+                  - "s3:List*"
+                Resource: 
+                  - 'arn:aws:s3:::aev-autonomous-driving-dataset'
+                  - 'arn:aws:s3:::aev-autonomous-driving-dataset/*'
+        - PolicyName: batch-job-batch-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "batch:SubmitJob"
+                Resource:
+                  - !Ref FargateJobQueue
+                  - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/*'
+              - Effect: Allow
+                Action:
+                  - "batch:DescribeJobs"
+                Resource:
+                  - "*"
+        - PolicyName: batch-job-glue-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "glue:CreateJob"
+                  - "glue:StartJobRun"
+                  - "glue:GetJob*"
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt GlueJobRole.Arn
+        - PolicyName: batch-job-secretsmanager-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                Resource:
+                  - !Ref RedshiftMasterUserPasswordSecret
+
+  FargateComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: !Sub '${AWS::StackName}-fargate'
+      Type: MANAGED
+      State: ENABLED
+      ComputeResources:
+        Type: "FARGATE_SPOT"
+        MaxvCpus: 256
+        Subnets: 
+          - !Ref BatchFargatePrivateSubnet
+        SecurityGroupIds:
+          - !GetAtt BatchFargateSecurityGroup.GroupId
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+      Tags:
+        Name: !Ref AWS::StackName
+  FargateJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties: 
+      JobQueueName: !Sub '${AWS::StackName}-fargate'
+      ComputeEnvironmentOrder: 
+        - Order: 1
+          ComputeEnvironment: !Ref FargateComputeEnvironment
+      Priority: 1
+      State: ENABLED
+  PythonFromS3JobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties: 
+      JobDefinitionName: !Sub '${AWS::StackName}-pythonfroms3'
+      Type: container
+      PlatformCapabilities: 
+        - FARGATE
+      ContainerProperties:
+        Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/pythonfroms3:focal'
+        FargatePlatformConfiguration:
+          PlatformVersion: "1.4.0"
+        ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
+        JobRoleArn: !GetAtt BatchJobRole.Arn
+        ResourceRequirements:
+          - Type: "VCPU"
+            Value: "4"
+          - Type: "MEMORY"
+            Value: "8192"
+        Volumes:
+          - EfsVolumeConfiguration:
+              FileSystemId: !Ref BatchFargateEfsFileSystem
+              AuthorizationConfig:
+                AccessPointId: !Ref BatchFargateEfsAccessPoint
+                Iam: "ENABLED"
+              RootDirectory: "/"
+              TransitEncryption: "ENABLED"
+            Name: "efs"
+        MountPoints:
+          - ContainerPath: "/efs"
+            SourceVolume: "efs"
+            
   DesktopRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -1080,9 +1629,7 @@ Resources:
             Action: 
               - "sts:AssumeRole"
       ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess'
-        - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
-        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonFSxReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/AmazonFSxReadOnlyAccess"
       Policies:
         - PolicyName: desktop-cloudformation-policy
           PolicyDocument:
@@ -1107,13 +1654,65 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                - "kafka:Describe*"
-                - "kafka:Get*"
-                - "kafka:List*"
-                - "kafka:UpdateClusterConfiguration"
+                - "kafka:DescribeCluster"
+                - "kafka:DescribeConfiguration"
+                - "kafka:DescribeConfigurationRevision"
                 - "kafka:CreateConfiguration"
-                Resource: "*"
+                - "kafka:UpdateClusterConfiguration"
+                - "kafka:GetBootstrapBrokers"
+                Resource:
+                  - "*"
+              
+        - PolicyName: desktop-batch-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "batch:SubmitJob"
+                Resource:
+                  - !Ref FargateJobQueue
+                  - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/*'
+              - Effect: Allow
+                Action:
+                  - "batch:DescribeJobs"
+                Resource:
+                  - "*"
+        - PolicyName: desktop-glue-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "glue:CreateJob"
+                  - "glue:StartJobRun"
+                  - "glue:GetJob*"
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt GlueJobRole.Arn
         
+        - PolicyName: desktop-sfn-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:CreateStateMachine
+                  - states:StartExecution
+                  - states:StopExecution
+                  - states:DescribeStateMachine*
+                  - states:DescribeExecution
+                  - states:ListStateMachines
+                  - states:ListExecutions
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt StepFunctionsRole.Arn
+
         - PolicyName: desktop-ecr-policy
           PolicyDocument:
             Statement:
@@ -1203,10 +1802,9 @@ Resources:
         - Key: "Name"
           Value: !Sub '${AWS::StackName}-desktop'
 
-      UserData: !Base64 
-        'Fn::Join':
-          - ''
-          - - |
+      UserData:
+        Fn::Base64:
+          !Sub |
               Content-Type: multipart/mixed; boundary="//"
               MIME-Version: 1.0
 
@@ -1473,167 +2071,32 @@ Resources:
 
               systemctl enable webviz
 
-            - |+
-
-            - EKS_CLUSTER_NAME=
-            - !Ref 'AWS::StackName'
-            - |+
-
-            - REDSHIFT_ADDRESS=
-            - !GetAtt 'RedshiftCluster.Endpoint.Address'
-            - |+
-
-            - REDSHIFT_PORT=
-            - !GetAtt 'RedshiftCluster.Endpoint.Port'
-            - |+
-
-            - REDSHIFT_USER=
-            - !Ref RedshiftMasterUsername
-            - |+
-
-            - REDSHIFT_ROLE_ARN=
-            - !GetAtt RedshiftClusterRole.Arn
-            - |+
-
-            - REDSHIFT_DBNAME=
-            - !Ref RedshiftDatabaseName
-            - |+
-
-            - MSK_CLUSTER_ARN=
-            - !Ref MSKCluster
-            - |+
-
-            - MSK_CLUSTER_NAME=
-            - !Ref AWS::StackName
-            - |+
-
-            - GLUE_ROLE=
-            - !GetAtt GlueJobRole.Arn
-            - |+
-
-            - export EKS_NODE_ROLE=
-            - !GetAtt EksNodeRole.Arn
-            - |+
-
-            - DESKTOP_ROLE=
-            - !GetAtt DesktopRole.Arn
-            - |+
-
-            - EFS_FS_ID=
-            - !Ref EFSFileSystem
-            - |+
-
-            - FSX_FS_ID=
-            - !Ref FSxFileSystem
-            - |+
-
-            - FSX_MOUNT_NAME=
-            - !GetAtt 'FSxFileSystem.LustreMountName'
-            - |+
-
-            - FSX_DNS_NAME=
-            - !Ref FSxFileSystem
-            - '.fsx.'
-            - !Ref AWS::Region
-            - '.amazonaws.com'
-            - |+
-
-            - AWS_REGION=
-            - !Ref AWS::Region
-            - |+
-
-            - S3_BUCKET=
-            - !Ref S3Bucket
-            - |+
-
-            - KUBECTL_VERSION=
-            - !Ref KubectlVersion
-            - |+
-
-            - |
               # clone the add-apt-repository
               cd /home/ubuntu && git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
               export DIR=/home/ubuntu/amazon-eks-autonomous-driving-data-service
               chown -R ubuntu:ubuntu  $DIR
-             
-              # Update yaml files for creating EFS and FSx persistent-volume
-              sed -i -e "s/volumeHandle: .*/volumeHandle: $EFS_FS_ID/g" \
-                          $DIR/a2d2/efs/pv-efs-a2d2.yaml
-
-              sed -i -e "s/volumeHandle: .*/volumeHandle: $FSX_FS_ID/g" \
-                   -e "s/dnsname: .*/dnsname: $FSX_DNS_NAME/g" \
-                   -e "s/mountname: .*/mountname: $FSX_MOUNT_NAME/g"  \
-                   $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
-
-              MSK_SERVERS=$(aws kafka --region $AWS_REGION get-bootstrap-brokers \
-                    --cluster-arn $MSK_CLUSTER_ARN | \
-                    grep \"BootstrapBrokerString\"  | \
-                    awk '{split($0, a, " "); print a[2]}')
-
-              DESKTOP_USERNAME=$(echo $DESKTOP_ROLE | awk '{split($0, a, "/"); print a[2]}')
-              sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-                  -e "s/\"host\": .*/\"host\": \"$REDSHIFT_ADDRESS\",/g" \
-                  -e "s/\"port\": .*/\"port\": \"$REDSHIFT_PORT\",/g" \
-                  -e "s/\"user\": .*/\"user\": \"$REDSHIFT_USER\",/g" \
-                  -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"$S3_BUCKET\",/g" \
-                  $DIR/a2d2/charts/a2d2-data-service/values.yaml
-
-              sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-                  $DIR/a2d2/config/c-config-ex1.json
-                  
-              sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-                  $DIR/a2d2/config/c-config-ex2.json
-
-              aws s3 cp $DIR/a2d2/data/sensors.csv s3://$S3_BUCKET/redshift/sensors.csv
-              aws s3 cp $DIR/a2d2/data/vehicle.csv s3://$S3_BUCKET/redshift/vehicle.csv
-              aws s3 cp $DIR/scripts/a2d2-metadata-etl.py s3://$S3_BUCKET/glue/script/a2d2-metadata-etl.py
-
-              # Create redshift.config
-              cat >$DIR/a2d2/config/redshift.config <<EOL
-              {
-                "host": "$REDSHIFT_ADDRESS",
-                "port": "$REDSHIFT_PORT",
-                "user": "$REDSHIFT_USER",
-                "dbname": "$REDSHIFT_DBNAME",
-                "password": "",
-                "queries": [
-                  "create schema IF NOT EXISTS a2d2",
-                  "CREATE TABLE IF NOT EXISTS a2d2.sensor ( sensorid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (sensorid)) DISTSTYLE ALL",
-                  "CREATE TABLE IF NOT EXISTS a2d2.vehicle ( vehicleid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (vehicleid)) DISTSTYLE ALL",
-                  "create table IF NOT EXISTS a2d2.drive_data ( vehicle_id varchar(255) encode Text255 not NULL, scene_id varchar(255) encode Text255 not NULL, sensor_id varchar(255) encode Text255 not NULL, data_ts BIGINT not NULL sortkey, s3_bucket VARCHAR(255) encode lzo NOT NULL, s3_key varchar(255) encode lzo NOT NULL, primary key(vehicle_id, scene_id), FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid), FOREIGN KEY(sensor_id) references a2d2.sensor(sensorid)) DISTSTYLE AUTO",
-                  "COPY a2d2.sensor FROM 's3://$S3_BUCKET/redshift/sensors.csv' iam_role  '$REDSHIFT_ROLE_ARN' CSV",
-                  "COPY a2d2.vehicle FROM 's3://$S3_BUCKET/redshift/vehicle.csv' iam_role  '$REDSHIFT_ROLE_ARN' CSV",
-                  "COPY a2d2.drive_data FROM 's3://$S3_BUCKET/emr/a2d2/image/v1/' iam_role  '$REDSHIFT_ROLE_ARN' CSV IGNOREHEADER 1",
-                  "COPY a2d2.drive_data FROM 's3://$S3_BUCKET/emr/a2d2/pcld/v1/' iam_role  '$REDSHIFT_ROLE_ARN' CSV IGNOREHEADER 1"
-                ]
-              }
-              EOL
-              chown ubuntu:ubuntu $DIR/a2d2/config/redshift.config
-
-              # Create kafka.config 
-              cat >$DIR/a2d2/config/kafka.config <<EOL
-              {
-                "config-name": "${MSK_CLUSTER_NAME}-configuration",
-                "config-description": "${MSK_CLUSTER_NAME} Kafka configuration",
-                "cluster-arn": "${MSK_CLUSTER_ARN}",
-                "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"
-              }
-              EOL
-              chown ubuntu:ubuntu $DIR/a2d2/config/kafka.config
-
-              # Create glue.config 
-              cat >$DIR/a2d2/config/glue.config <<EOL
-              {
-                "s3_bucket": "${S3_BUCKET}",
-                "glue_role": "${GLUE_ROLE}",
-                "script_location": "s3://${S3_BUCKET}/glue/script/a2d2-metadata-etl.py" 
-              }
-              EOL
-              chown ubuntu:ubuntu $DIR/a2d2/config/glue.config
-
+                          
               # update /home/ubuntu/.bashrc
-              echo "export s3_bucket_name=$S3_BUCKET" >> /home/ubuntu/.bashrc
-              echo "export eks_cluster_name=$EKS_CLUSTER_NAME" >> /home/ubuntu/.bashrc
+              echo "export efs_id=${EFSFileSystem}" >> /home/ubuntu/.bashrc
+              echo "export fsx_id=${FSxFileSystem}" >> /home/ubuntu/.bashrc
+              echo "export fsx_mount_name=${FSxFileSystem.LustreMountName}" >> /home/ubuntu/.bashrc
+              echo "export s3_bucket_name=${S3Bucket}" >> /home/ubuntu/.bashrc
+              echo "export eks_cluster_name=${AWS::StackName}" >> /home/ubuntu/.bashrc
+              echo "export cfn_stack_name=${AWS::StackName}" >> /home/ubuntu/.bashrc
+              echo "export batch_job_queue=${AWS::StackName}-fargate" >> /home/ubuntu/.bashrc
+              echo "export batch_job_definition=${AWS::StackName}-pythonfroms3" >> /home/ubuntu/.bashrc
+              echo "export stepfunctions_role_arn=${StepFunctionsRole.Arn}" >> /home/ubuntu/.bashrc
+              echo "export glue_job_role_arn=${GlueJobRole.Arn}" >> /home/ubuntu/.bashrc
+              echo "export redshift_cluster_role_arn=${RedshiftClusterRole.Arn}" >> /home/ubuntu/.bashrc
+              echo "export redshift_cluster_host=${RedshiftCluster.Endpoint.Address}" >> /home/ubuntu/.bashrc
+              echo "export redshift_cluster_port=${RedshiftCluster.Endpoint.Port}" >> /home/ubuntu/.bashrc
+              echo "export redshift_cluster_username=${RedshiftMasterUsername}" >> /home/ubuntu/.bashrc
+              echo "export redshift_cluster_dbname=${RedshiftDatabaseName}" >> /home/ubuntu/.bashrc
+              echo "export redshift_cluster_password=${RedshiftMasterUserPasswordSecret}" >> /home/ubuntu/.bashrc
+              echo "export desktop_role_arn=${DesktopRole.Arn}" >> /home/ubuntu/.bashrc
+              echo "export msk_cluster_arn=${MSKCluster}" >> /home/ubuntu/.bashrc
+              echo "export eks_node_role_arn=${EksNodeRole.Arn}" >> /home/ubuntu/.bashrc
+              echo "export eks_pod_sa_role_arn=${EksPodServiceAccountRole.Arn}" >> /home/ubuntu/.bashrc
 
               # Create EFS and FSX mount script 
               cat >/usr/local/bin/mount-efs-fsx.sh <<EOL
@@ -1645,7 +2108,7 @@ Resources:
               fi
               
               # Mount EFS
-              mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport $EFS_FS_ID.efs.$AWS_REGION.amazonaws.com:/ /efs
+              mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${EFSFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /efs
 
               if [[ ! -d /fsx ]]
               then
@@ -1653,48 +2116,26 @@ Resources:
               fi
 
               # Mount FSx
-              mount -t lustre -o noatime,flock $FSX_DNS_NAME@tcp:/$FSX_MOUNT_NAME /fsx
+              mount -t lustre -o noatime,flock ${FSxFileSystem}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxFileSystem.LustreMountName} /fsx
               EOL
 
               chmod u+x /usr/local/bin/mount-efs-fsx.sh
-
-              # Create ConfigMap for aws-auth 
-              cat >$DIR/a2d2/config/aws-auth.yaml <<EOL
-              apiVersion: v1
-              kind: ConfigMap
-              metadata:
-                name: aws-auth
-                namespace: kube-system
-              data:
-                mapRoles: |
-                  - rolearn: ${EKS_NODE_ROLE}
-                    username: system:node:{{EC2PrivateDNSName}}
-                    groups:
-                      - system:bootstrappers
-                      - system:nodes
-                  - rolearn: ${DESKTOP_ROLE}
-                    username: ${DESKTOP_USERNAME}
-                    groups:
-                      - system:masters
-              EOL
-
-              chown ubuntu:ubuntu $DIR/a2d2/config/aws-auth.yaml
 
               # Create config file
               mkdir /home/ubuntu/.aws
               cat >/home/ubuntu/.aws/config <<EOL
               [default]
-              region = ${AWS_REGION}
+              region = ${AWS::Region}
               output=json
 
               EOL
               chown -R ubuntu:ubuntu /home/ubuntu/.aws
-              
+
               # install kubectl for EKS
               mkdir -p /usr/local/bin
-              curl -o /usr/local/bin/kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/$KUBECTL_VERSION/bin/linux/amd64/kubectl
+              curl -o /usr/local/bin/kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/${KubectlVersion}/bin/linux/amd64/kubectl
               chmod a+x /usr/local/bin/kubectl
-              curl -o /usr/local/bin/aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/$KUBECTL_VERSION/bin/linux/amd64/aws-iam-authenticator
+              curl -o /usr/local/bin/aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/${KubectlVersion}/bin/linux/amd64/aws-iam-authenticator
               
               # install eksctl 
               curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
@@ -1712,48 +2153,14 @@ Resources:
 
 Outputs:
   VpcSecurityGroup:
-    Value:
-      Fn::Join:
-        - ''
-        - - '['
-          - '''' 
-          - !GetAtt VpcSecurityGroup.GroupId
-          - '''' 
-          - ']'
+    Description: Vpc security group id
+    Value: !Sub "[ '${VpcSecurityGroup.GroupId}' ]"
   VpcPublicSubnets:
-    Value:
-      Fn::Join:
-        - ''
-        - - '['
-          - '''' 
-          - !Ref PublicSubnet1
-          - '''' 
-          - ','
-          - '''' 
-          - !Ref PublicSubnet2
-          - '''' 
-          - ','
-          - '''' 
-          - !Ref PublicSubnet3
-          - '''' 
-          - ']'
+    Description: Vpc public subnets
+    Value: !Sub "[ '${PublicSubnet1}', '${PublicSubnet2}', '${PublicSubnet3}' ]"
   VpcPrivateSubnets:
-    Value:
-      Fn::Join:
-        - ''
-        - - '['
-          - '''' 
-          - !Ref PrivateSubnet1
-          - '''' 
-          - ','
-          - '''' 
-          - !Ref PrivateSubnet2
-          - '''' 
-          - ','
-          - '''' 
-          - !Ref PrivateSubnet3
-          - '''' 
-          - ']'
+    Description: Vpc public subnets
+    Value: !Sub "[ '${PrivateSubnet1}', '${PrivateSubnet2}', '${PrivateSubnet3}' ]"
   RedshiftClusterEndpoint:
     Description: Redshit Cluster Endpoint
     Value: !Sub "${RedshiftCluster.Endpoint.Address}:${RedshiftCluster.Endpoint.Port}"
@@ -1808,7 +2215,22 @@ Outputs:
   GlueJobRole:
     Description: Glue job service role
     Value: !GetAtt GlueJobRole.Arn
+  BatchServiceRole:
+    Description: Batch service role
+    Value: !GetAtt BatchServiceRole.Arn
+  BatchExecutionRole:
+    Description: Batch Execution role
+    Value: !GetAtt BatchExecutionRole.Arn
+  BatchJobRole:
+    Description: Batch Job role
+    Value: !GetAtt BatchJobRole.Arn
+  StepFunctionsRole:
+    Description: Step functions role
+    Value: !GetAtt StepFunctionsRole.Arn
   MSKCluster:
     Description: MSK Cluster ARN
     Value: !Ref MSKCluster
+  FargateJobQueue:
+    Description: Fargate Batch job queue
+    Value: !Ref FargateJobQueue
   
