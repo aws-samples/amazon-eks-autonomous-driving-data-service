@@ -14,6 +14,8 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+# WARNING: THIS FILE IS DEPRECATED AND IS NOT USED 
+
 # set s3 bucket name
 [[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name env variable is required" && exit 1
 echo "S3 Bucket Name: $s3_bucket_name"

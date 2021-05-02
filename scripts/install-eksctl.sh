@@ -14,6 +14,8 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+# WARNING: THIS FILE IS DEPRECATED AND IS NOT USED 
+
 curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
 sudo mv /tmp/eksctl /usr/local/bin
 eksctl version

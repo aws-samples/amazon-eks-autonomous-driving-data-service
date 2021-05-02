@@ -14,6 +14,8 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+# WARNING: THIS FILE IS DEPRECATED AND IS NOT USED 
+
 curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 > get_helm.sh
 chmod 700 get_helm.sh
 ./get_helm.sh
