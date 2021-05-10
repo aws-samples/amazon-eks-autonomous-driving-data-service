@@ -74,10 +74,6 @@ Parameters:
     AllowedValues:
     - ra3.4xlarge
     - ra3.16xlarge
-    - ds2.xlarge
-    - ds2.8xlarge
-    - dc2.large
-    - dc2.8xlarge
 
   RedshiftMasterUsername:
     Description: The user name that is associated with the master user account for
@@ -102,8 +98,6 @@ Parameters:
     Type: String
     Default: kafka.m5.2xlarge
     AllowedValues:
-    - kafka.m5.large
-    - kafka.m5.xlarge
     - kafka.m5.2xlarge
     - kafka.m5.4xlarge
     
@@ -133,13 +127,13 @@ Parameters:
   KubernetesVersion:
     Description: Kubernetes Version
     Type: String
-    AllowedValues: [ "1.19", "1.18" ]
+    AllowedValues: [ "1.19" ]
     Default: "1.19"
 
   KubectlVersion:
     Description: Kubectl Version
     Type: String
-    AllowedValues: [ "1.19.6/2021-01-05", "1.18.9/2020-11-02" ]
+    AllowedValues: [ "1.19.6/2021-01-05" ]
     Default: "1.19.6/2021-01-05"
   
   EKSNodeVolumeSizeGiB:
@@ -157,8 +151,8 @@ Parameters:
   EKSNodeGroupMaxSize:
     Description: EKS Node group maximum size
     Type: Number
-    MinValue: 1
-    Default: 8
+    MinValue: 2
+    Default: 10
   
   EKSNodeGroupDesiredSize:
     Description: EKS Node group desired size
@@ -171,12 +165,6 @@ Parameters:
     Type: String
     Default: "r5n.8xlarge"
     AllowedValues:
-    - m5n.4xlarge
-    - m5n.8xlarge
-    - m5n.12xlarge
-    - m5n.16xlarge
-    - m5n.24xlarge
-    - r5n.4xlarge
     - r5n.8xlarge
     - r5n.12xlarge
     - r5n.16xlarge
@@ -195,24 +183,6 @@ Parameters:
     Type: String
     Default: g3s.xlarge
     AllowedValues:
-      - m5d.2xlarge
-      - m5d.4xlarge
-      - m5d.8xlarge
-      - m5d.12xlarge
-      - m5d.16xlarge
-      - m5d.24xlarge
-      - c5d.2xlarge
-      - c5d.4xlarge
-      - c5d.9xlarge
-      - c5d.12xlarge
-      - c5d.18xlarge
-      - c5d.24xlarge
-      - r5d.2xlarge
-      - r5d.4xlarge
-      - r5d.8xlarge
-      - r5d.12xlarge
-      - r5d.16xlarge
-      - r5d.24xlarge
       - g3s.xlarge
       - g3.4xlarge
       - g3.8xlarge
@@ -223,13 +193,8 @@ Parameters:
       - g4dn.8xlarge
       - g4dn.12xlarge
       - g4dn.16xlarge
-      - p3.2xlarge
-      - p3.8xlarge
-      - p3.16xlarge
-      - p3dn.24xlarge
-      - p4d.24xlarge
      
-    ConstraintDescription: Must be a valid CPU, or GPU EC2 instance type.
+    ConstraintDescription: Must be a valid GPU EC2 instance type.
   
   DesktopEbsVolumeSize:
     Description: Desktop EBS volume size (GiB) 
@@ -1063,6 +1028,52 @@ Resources:
       - Ref: PrivateSubnet1
       - Ref: PrivateSubnet2
       - Ref: PrivateSubnet3
+  
+  EksClusterAutoscalerServiceAccountRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument: !Sub
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${ClusterOIDCPath}"
+                  },
+                  "Action": "sts:AssumeRoleWithWebIdentity",
+                  "Condition": {
+                    "StringEquals": {
+                      "${ClusterOIDCPath}:aud": "sts.amazonaws.com"
+                    }
+                  }
+                }
+              ]
+            }   
+          - ClusterOIDCPath: !Join 
+            - ''
+            - - 'oidc.eks.'
+              - !Ref 'AWS::Region'
+              - '.amazonaws.com/id/'
+              - !Select [0, !Split ['.', !Select [1, !Split ['//', !GetAtt EksControlPlane.Endpoint]]]]     
+      Policies:
+        - PolicyName: 'eks-autoscaler-sa-role-poliicy'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - "autoscaling:DescribeAutoScalingGroups"
+                  - "autoscaling:DescribeAutoScalingInstances"
+                  - "autoscaling:DescribeLaunchConfigurations"
+                  - "autoscaling:DescribeTags"
+                  - "autoscaling:SetDesiredCapacity"
+                  - "autoscaling:TerminateInstanceInAutoScalingGroup"
+                  - "ec2:DescribeLaunchTemplateVersions"
+                Resource:
+                  - '*'
+
   FSxFileSystem:
     Type: AWS::FSx::FileSystem
     DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngress ]
@@ -2097,7 +2108,9 @@ Resources:
               echo "export msk_cluster_arn=${MSKCluster}" >> /home/ubuntu/.bashrc
               echo "export eks_node_role_arn=${EksNodeRole.Arn}" >> /home/ubuntu/.bashrc
               echo "export eks_pod_sa_role_arn=${EksPodServiceAccountRole.Arn}" >> /home/ubuntu/.bashrc
-
+              echo "export cluster_autoscaler_image_tag=v${KubernetesVersion}.0" >> /home/ubuntu/.bashrc
+              echo "export eks_cluster_autoscaler_role_arn=${EksClusterAutoscalerServiceAccountRole.Arn}" >> /home/ubuntu/.bashrc
+              
               # Create EFS and FSX mount script 
               cat >/usr/local/bin/mount-efs-fsx.sh <<EOL
               #!/bin/bash
@@ -2152,85 +2165,73 @@ Resources:
               reboot
 
 Outputs:
-  VpcSecurityGroup:
-    Description: Vpc security group id
-    Value: !Sub "[ '${VpcSecurityGroup.GroupId}' ]"
-  VpcPublicSubnets:
-    Description: Vpc public subnets
-    Value: !Sub "[ '${PublicSubnet1}', '${PublicSubnet2}', '${PublicSubnet3}' ]"
-  VpcPrivateSubnets:
-    Description: Vpc public subnets
-    Value: !Sub "[ '${PrivateSubnet1}', '${PrivateSubnet2}', '${PrivateSubnet3}' ]"
-  RedshiftClusterEndpoint:
-    Description: Redshit Cluster Endpoint
-    Value: !Sub "${RedshiftCluster.Endpoint.Address}:${RedshiftCluster.Endpoint.Port}"
-  RedshiftClusterName:
-    Description: Name of Redshift cluster
-    Value:
-      Ref: RedshiftCluster
-  RedshiftParameterGroupName:
-    Description: Name of Redshift parameter group
-    Value:
-      Ref: RedshiftClusterParameterGroup
-  RedshiftClusterSubnetGroupName:
-    Description: Name of Redshift cluster subnet group
-    Value:
-      Ref: RedshiftClusterSubnetGroup
-  RedshiftClusterSecurityGroupName:
-    Description: Name of Redshift cluster security group
-    Value:
-      Ref: RedshiftSecurityGroup
-  RedshitClusterRole:
-    Description: Redshift Cluster Iam role
-    Value: !GetAtt RedshiftClusterRole.Arn
-  DesktopRole:
-    Description: Desktop IAM role
-    Value: !GetAtt DesktopRole.Arn
+  PublicSubnet1:
+    Description: Public subnet 1
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "PublicSubnet1" ] ]
+  PublicSubnet2:
+    Description: Public subnet 2
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "PublicSubnet2" ] ]
+  PublicSubnet3:
+    Description: Public subnet 3
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "PublicSubnet3" ] ]
+  DesktopSecurityGroupId:
+    Description: Desktop security group id
+    Value: !GetAtt DesktopSecurityGroup.GroupId
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "DesktopSecurityGroupId" ] ]
   DesktopInstanceProfile:
     Description: Desktop instance profile
-    Value:
-      Ref: DesktopInstanceProfile
-  DesktopInstance:
-    Description: Desktop instance id
-    Value: !Ref DesktopInstance
-  DesktopSecurityGroup:
-    Description: Desktop security group
-    Value:
-      Ref: DesktopSecurityGroup
-  FSxFileSystemId:
+    Value: !Ref DesktopInstanceProfile
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "DesktopInstanceProfile" ] ]
+  RedshiftHost:
+    Description: Redshit  host
+    Value: !Sub "${RedshiftCluster.Endpoint.Address}"
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "RedshiftHost" ] ]
+  RedshiftPort:
+    Description: Redshit  port
+    Value: !Sub "${RedshiftCluster.Endpoint.Port}"
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "RedshiftPort" ] ]
+  RedshiftDb:
+    Description: Redshit database name
+    Value: !Ref RedshiftDatabaseName
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "RedshiftDb" ] ]
+  FSxId:
     Description: FSx for Luster file system id
     Value: !Ref FSxFileSystem
-  EFSFileSystemId:
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "FSxId" ] ]
+  FSxMountName:
+    Description: FSx for Luster mount name
+    Value: !Sub "${FSxFileSystem.LustreMountName}"
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "FSxMountName" ] ]
+  EFSId:
     Description: EFS file system id
     Value: !Ref EFSFileSystem
-  EksArn:
-    Description: EKS ControlPlane ARN
-    Value: !GetAtt EksControlPlane.Arn
-  EKSEndpoint:
-    Description: EKS Endpoint
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "EFSId" ] ]
+  EKSClusterEndpoint:
+    Description: EKS cluster endpoint
     Value: !GetAtt EksControlPlane.Endpoint
-  EKSName:
-    Description: EKS Cluster name
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "EKSClusterEndpoint" ] ]
+  EKSClusterName:
+    Description: EKS cluster name
     Value: !Ref EksControlPlane
-  GlueJobRole:
-    Description: Glue job service role
-    Value: !GetAtt GlueJobRole.Arn
-  BatchServiceRole:
-    Description: Batch service role
-    Value: !GetAtt BatchServiceRole.Arn
-  BatchExecutionRole:
-    Description: Batch Execution role
-    Value: !GetAtt BatchExecutionRole.Arn
-  BatchJobRole:
-    Description: Batch Job role
-    Value: !GetAtt BatchJobRole.Arn
-  StepFunctionsRole:
-    Description: Step functions role
-    Value: !GetAtt StepFunctionsRole.Arn
-  MSKCluster:
-    Description: MSK Cluster ARN
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "EKSClusterName" ] ]
+  MSKClusterArn:
+    Description: MSK cluster Arn
     Value: !Ref MSKCluster
-  FargateJobQueue:
-    Description: Fargate Batch job queue
-    Value: !Ref FargateJobQueue
-  
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "MSKClusterArn" ] ]

@@ -11,6 +11,13 @@ a2d2:
     uri: '' 
     policy: Always
   replicaCount: 1
+  maxReplicaCount: 10
+  requests:
+    memory: "72Gi"
+    cpu: "8000m"
+  metric:
+    name: "cpu"
+    average: "50"
   config:
     dir: "/etc/config"
     path: "a2d2-data-service.conf"

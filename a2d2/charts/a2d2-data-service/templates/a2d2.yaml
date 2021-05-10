@@ -59,6 +59,10 @@ spec:
       - name: {{ .Values.a2d2.name }} 
         image: {{ .Values.a2d2.image.uri }} 
         imagePullPolicy: {{ .Values.a2d2.image.policy }}
+        resources:
+          requests:
+            memory: {{ .Values.a2d2.requests.memory }} 
+            cpu: {{ .Values.a2d2.requests.cpu }} 
         command:
         - python
         args:
@@ -74,3 +78,23 @@ spec:
           name: efs
         - mountPath: /tmp
           name: tmp
+---
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler
+metadata:
+  namespace: {{ .Values.global.namespace }}
+  name: {{ .Values.a2d2.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.a2d2.name }}
+  minReplicas: {{ .Values.a2d2.replicaCount }} 
+  maxReplicas: {{ .Values.a2d2.maxReplicaCount }} 
+  metrics:
+  - type: Resource
+    resource:
+      name: {{ .Values.a2d2.metric.name }} 
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.a2d2.metric.average }} 

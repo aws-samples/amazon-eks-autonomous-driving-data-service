@@ -13,9 +13,12 @@
 #HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+ 
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIR=$scripts_dir/..
+
+# check to see if kubectl is already configured
+kubectl get svc || $scripts_dir/configure-eks-auth.sh
 
 # set aws region
 aws_region=$(aws configure get region)
@@ -104,6 +107,12 @@ echo "Create k8s persistent-volume and persistent-volume-claim for fsx"
 kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
 kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pvc-fsx-a2d2.yaml
 kubectl get pv -n a2d2
+
+# deploy metrics server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# deploy eks cluster autoscaler
+$scripts_dir/eks-cluster-autoscaler.sh
 
 # Build ECR image
 $scripts_dir/build-ecr-image.sh

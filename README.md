@@ -40,12 +40,6 @@ The data client can encode such a data request using the JSON object shown below
 
 For a detailed description of each request field shown in the example above, see [data request fields](#RequestFields) below.
 
-### Raw data input data source, and response data staging
-
-The data service can be configured to input raw data from S3, FSx (see [Preload A2D2 data from S3 to FSx](#PreloadFSx) ), or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ).  Similarly, the data client can specify the ```accept``` field in the ```request``` to request that the response data be staged on S3, FSx, or EFS. Any combination of raw data input source, and the response data staging is valid. 
-
-The raw data input source is fixed when the data service is deployed. However, the response data staging option is specified in the data client request, and is therefore dynamic. 
-
 ## Tutorial step by step guide
 
 ### Overview
@@ -145,7 +139,20 @@ To verify that the ```a2d2-data-service``` deployment is running, execute the co
 You can **stop** the data service by executing:
 
 		helm delete a2d2-data-service
- 
+
+#### Raw data input data source, and response data staging
+
+The data service can be configured to input raw data from S3, FSx (see [Preload A2D2 data from S3 to FSx](#PreloadFSx) ), or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ).  Similarly, the data client can specify the ```accept``` field in the ```request``` to request that the response data be staged on S3, FSx, or EFS. The raw data input source is fixed when the data service is deployed. However, the response data staging option is specified in the data client request, and is therefore dynamic. 
+
+Below is the Helm chart configuration in [```values.yaml```](a2d2/charts/a2d2-data-service/values.yaml) for various raw input data source options, with recommended Kubernetes resource requests for pod ```memory``` and ```cpu```:
+
+ Raw input data source | ```values.yaml``` Configuration |
+| --- | ----------- |
+| ```fsx``` (default) | ```a2d2.requests.memory: "72Gi"``` <br> ```a2d2.requests.cpu: "8000m"``` <br> ```configMap["data_store"]["input"]: "fsx"```|
+| ```efs```  | ```a2d2.requests.memory: "32Gi"``` <br> ```a2d2.requests.cpu: "1000m"``` <br> ```configMap["data_store"]["input"]: "efs"```|
+| ```s3```  | ```a2d2.requests.memory: "8Gi"``` <br> ```a2d2.requests.cpu: "1000m"``` <br> ```configMap["data_store"]["input"]: "s3"```|
+
+For matching response data staging options in data client request, see ```accept``` field in [data request fields](#RequestFields). As a quick example, the recommended response data staging option for ```fsx``` raw data source is```"accept": "fsx/multipart/rosbag"```.
 
 ### Run the data service client
 
