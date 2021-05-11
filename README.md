@@ -111,7 +111,7 @@ In this step, relevant data service configuration files are generated and upload
 
 		./scripts/setup-dev.sh
 
-This step also builds and pushes the data service container imager into [Amazon ECR](https://aws.amazon.com/ecr/).
+This step also builds and pushes the data service container image into [Amazon ECR](https://aws.amazon.com/ecr/).
 
 ### Prepare the A2D2 data
 
@@ -149,11 +149,11 @@ Below is the Helm chart configuration in [```values.yaml```](a2d2/charts/a2d2-da
 
  Raw input data source | ```values.yaml``` Configuration |
 | --- | ----------- |
-| ```fsx``` (default) | ```a2d2.requests.memory: "72Gi"``` <br> ```a2d2.requests.cpu: "8000m"``` <br> ```configMap["data_store"]["input"]: "fsx"```|
-| ```efs```  | ```a2d2.requests.memory: "32Gi"``` <br> ```a2d2.requests.cpu: "1000m"``` <br> ```configMap["data_store"]["input"]: "efs"```|
-| ```s3```  | ```a2d2.requests.memory: "8Gi"``` <br> ```a2d2.requests.cpu: "1000m"``` <br> ```configMap["data_store"]["input"]: "s3"```|
+| ```fsx``` (default) | ```a2d2.requests.memory: "72Gi"``` <br> ```a2d2.requests.cpu: "8000m"``` <br> ```configMap.data_store.input: "fsx"```|
+| ```efs```  | ```a2d2.requests.memory: "32Gi"``` <br> ```a2d2.requests.cpu: "1000m"``` <br> ```configMap.data_store.input: "efs"```|
+| ```s3```  | ```a2d2.requests.memory: "8Gi"``` <br> ```a2d2.requests.cpu: "1000m"``` <br> ```configMap.data_store.input: "s3"```|
 
-For matching response data staging options in data client request, see ```accept``` field in [data request fields](#RequestFields). As a quick example, the recommended response data staging option for ```fsx``` raw data source is```"accept": "fsx/multipart/rosbag"```.
+For matching response data staging options in data client request, see ```requests.accept``` field in [data request fields](#RequestFields). The recommended response data staging option for ```fsx``` raw data source is```"accept": "fsx/multipart/rosbag"```, for ```efs``` raw data source is```"accept": "efs/multipart/rosbag"```, and for ```s3``` raw data source is```"accept": "s3/multipart/rosbag"```
 
 ### Run the data service client
 
@@ -189,21 +189,31 @@ Below, we explain the semantics of the various fields in the data client request
 | --- | ----------- |
 | ```servers``` | The ```servers``` identify the [AWS MSK](https://aws.amazon.com/msk/) Kafka cluster endpoint. |
 | ```requests```| The JSON document sent by the client to the data service must include an array of one or more data ```requests``` for drive scene data. |
-| ```kafka_topic``` | The ```kafka_topic``` specifies the Kafka topic on which the data request is sent from the client to the data service. The data service is listening on the topic. |
-| ```vehicle_id``` | The ```vehicle_id``` is used to identify the relevant drive scene dataset. |
-| ```scene_id```  | The ```scene_id``` identifies the drive scene of interest, which in this example is ```20190401145936```, which in this example is a string representing the date and time of the drive scene, but in general could be any unique value. |
-| ```start_ts``` | The ```start_ts``` (microseconds) specifies the start timestamp for the drive scene data request. |
-| ```stop_ts``` | The ```stop_ts``` (microseconds) specifies the stop timestamp for the drive scene data request. |
-| ```ros_topic``` | The ```ros_topic``` is a dictionary from ```sensor ids``` in the vehicle to ```ros``` topics.|
-| ```data_type```| The ```data_type``` is a dictionary from ```sensor ids``` to ```ros``` data types.  |
-| ```step``` | The ```step``` is the discreet time interval (microseconds) used to discretize the timespan between ```start_ts``` and ```stop_ts``` into discreet chunks. The data service responds with a ```rosbag``` file for each chunk, if ```accept``` field contains ```multipart``` . See also ```singlepart``` field.|
-| ```accept``` | The ```accept``` specifies the response data staging format acceptable to the client. |
-| ```fsx/multipart/rosbag``` | Format for response data staging on [Amazon FSx for Lustre](https://aws.amazon.com/fsx/lustre/) as  discretized ```rosbag``` chunks. |
-| ```efs/multipart/rosbag``` | Format for response data staging on [Amazon EFS](https://aws.amazon.com/efs/) as  discretized ```rosbag``` chunks.|
-|```s3/multipart/rosbag```| Format for response data staging on [Amazon S3](https://aws.amazon.com/s3/) as  discretized ```rosbag``` chunks.|
-| ```singlepart```| If the ```accept``` specifies ```singlepart```, the response data comprises of a single ```rosbag``` file, instead of the discretized ```rosbag``` chunks in the case of ```multipart```. See also ```step``` field. |
-| ```manifest``` | If the ```accept``` is specified as ```manifest```, meta-data containing S3 paths to the raw data is returned, and the data client is expected to process the meta-data as it deems fit. |
-|```preview```| If the ```preview``` field is set to ```true```, the data service returns requested data over a single time ```step``` starting from ```start_ts``` , but ignores the ```stop_ts```.|
+| ```requests.kafka_topic``` | The ```kafka_topic``` specifies the Kafka topic on which the data request is sent from the client to the data service. The data service is listening on the topic. |
+| ```requests.vehicle_id``` | The ```vehicle_id``` is used to identify the relevant drive scene dataset. |
+| ```requests.scene_id```  | The ```scene_id``` identifies the drive scene of interest, which in this example is ```20190401145936```, which in this example is a string representing the date and time of the drive scene, but in general could be any unique value. |
+| ```requests.start_ts``` | The ```start_ts``` (microseconds) specifies the start timestamp for the drive scene data request. |
+| ```requests.stop_ts``` | The ```stop_ts``` (microseconds) specifies the stop timestamp for the drive scene data request. |
+| ```requests.ros_topic``` | The ```ros_topic``` is a dictionary from ```sensor ids``` in the vehicle to ```ros``` topics.|
+| ```requests.data_type```| The ```data_type``` is a dictionary from ```sensor ids``` to ```ros``` data types.  |
+| ```requests.step``` | The ```step``` is the discreet time interval (microseconds) used to discretize the timespan between ```start_ts``` and ```stop_ts```. If ```requests.accept``` value contains ```multipart```, the data service responds with a ```rosbag``` file for each discreet ```step```: See [possible values](#AcceptValues) below. |
+| ```requests.accept``` | The ```accept``` specifies the response data staging format acceptable to the client: See [possible values](#AcceptValues) below.
+|```requests.preview```| If the ```preview``` field is set to ```true```, the data service returns requested data over a single time ```step``` starting from ```start_ts``` , and ignores the ```stop_ts```.|
+
+#### <a name="AcceptValues"></a>  Possible ```requests.accept``` field values
+
+Below we describe the possible values for ```requests.accept``` field:
+
+| ```requests.accept``` value | Description |
+| --- | ----------- |
+| ```fsx/multipart/rosbag``` | Stage response data on shared Amazon FSx file-system as  discretized ```rosbag``` chunks |
+| ```efs/multipart/rosbag``` | Stage response data on shared Amazon EFS file-system as  discretized ```rosbag``` chunks|
+|```s3/multipart/rosbag```| Stage response data on Amazon S3 as  discretized ```rosbag``` chunks|
+| ```fsx/singlepart/rosbag``` | Stage response data on shared Amazon FSx file-system as  single ```rosbag``` |
+| ```efs/singlepart/rosbag``` | Stage response data on on shared Amazon EFS file-system as  single ```rosbag```|
+|```s3/singlepart/rosbag```| Stage response data on Amazon S3 as  single ```rosbag```|
+| ```manifest``` | Return a manifest of meta-data containing S3 paths to the raw data: ```manifest``` is returned directly over the Kafka response topic, and is not staged |
+
 
 ### <a name="InputParams"></a> AWS CloudFormation template input parameters
 This repository provides an [AWS CloudFormation](https://aws.amazon.com/cloudformation/) template that is used to create the required stack.
