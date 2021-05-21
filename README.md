@@ -11,7 +11,7 @@ The typical use case addressed by this data service is to serve sensor data from
 
 The data service runs in [Kubernetes Pods](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster configured to use [Horizontal Pod Autoscaler](https://docs.aws.amazon.com/eks/latest/userguide/horizontal-pod-autoscaler.html) and EKS [Cluster Autoscaler](https://docs.aws.amazon.com/eks/latest/userguide/cluster-autoscaler.html). 
 
-An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) cluster provides the communication channel between the data service, and the client. The data service implements a *request-response* paradigm over Apache Kafka topics. However, the response data is not sent back over the Kafka topics. Instead, the data service stages the response data in Amazon S3, Amazon FSx, or Amazon EFS, as specified in the data service configuration, and the location of the response data is sent back to the data client over the Kafka topics. The data client directly reads the response data from its staged location.
+An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) cluster provides the communication channel between the data service, and the client. The data service implements a *request-response* paradigm over Apache Kafka topics. However, the response data is not sent back over the Kafka topics. Instead, the data service stages the response data in Amazon S3, Amazon FSx, or Amazon EFS, as specified in the data client request, and the location of the response data is sent back to the data client over the Kafka topics. The data client directly reads the response data from its staged location.
 
 ### Data client request
 Concretely, imagine the data client wants to request drive scene  data in ```rosbag``` file format from [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) for vehicle id ```a2d2```, drive scene id ```20190401145936```, starting at timestamp ```1554121593909500``` (microseconds) , and stopping at timestamp ```1554122334971448``` (microseconds). The data client wants the response to include data **only** from the ```front-left camera``` in ```sensor_msgs/Image``` [ROS](https://www.ros.org/) data type, and the ```front-left lidar``` in ```sensor_msgs/PointCloud2``` ROS data type. The data client wants the response data to be *streamed* back chunked in series of ```rosbag``` files, each file spanning ```1000000``` microseconds of the drive scene. Finally, the data client wants the response ```rosbag``` files to be stored on a shared Amazon FSx file system. 
@@ -290,3 +290,4 @@ If the pod is still ```Running```, the step has not yet completed. This step tak
 
 
 
+request
