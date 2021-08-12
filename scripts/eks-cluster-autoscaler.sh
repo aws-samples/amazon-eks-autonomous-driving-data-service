@@ -17,7 +17,7 @@
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 [[ -z "${eks_cluster_name}" ]] && echo "eks_cluster_name env variable is required" && exit 1
 [[ -z "${eks_cluster_autoscaler_role_arn}" ]] && echo "eks_cluster_autoscaler_role_arn required" && exit 1
-[[ -z "${cluster_autoscaler_image_tag}" ]] && cluster_autoscaler_image_tag="v1.19.0" 
+[[ -z "${cluster_autoscaler_image_tag}" ]] && cluster_autoscaler_image_tag="v1.21.0" 
 
 
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
@@ -29,7 +29,7 @@ EOL
 kubectl patch ServiceAccount cluster-autoscaler -n kube-system --patch "$(cat cluster-autoscaler-serviceaccount-patch.json)" 
   
 cat >cluster-autoscaler-deployment-patch.json <<EOL
-{"spec": { "template": { "metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict": "false"}}, "spec": { "containers": [{ "image": "k8s.gcr.io/autoscaling/cluster-autoscaler:${cluster_autoscaler_image_tag}", "name": "cluster-autoscaler", "resources": { "limits": {"cpu": "100m", "memory": "300Mi" }, "requests": {"cpu": "100m", "memory": "300Mi"}}, "command": [ "./cluster-autoscaler", "--v=4", "--stderrthreshold=info", "--cloud-provider=aws", "--skip-nodes-with-local-storage=false", "--expander=least-waste", "--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${eks_cluster_name}" ]}]}}}}
+{"spec": { "template": { "metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict": "false"}}, "spec": { "containers": [{ "image": "k8s.gcr.io/autoscaling/cluster-autoscaler:${cluster_autoscaler_image_tag}", "name": "cluster-autoscaler", "resources": { "requests": {"cpu": "100m", "memory": "300Mi"}}, "command": [ "./cluster-autoscaler", "--v=4", "--stderrthreshold=info", "--cloud-provider=aws", "--skip-nodes-with-local-storage=false", "--expander=least-waste", "--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${eks_cluster_name}", "--balance-similar-node-groups", "--skip-nodes-with-system-pods=false" ]}]}}}}
 EOL
 
 kubectl -n kube-system patch deployment cluster-autoscaler --patch "$(cat  cluster-autoscaler-deployment-patch.json)"

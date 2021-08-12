@@ -55,9 +55,10 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
         $DIR/a2d2/config/c-config-ex2.json
              
 # Create kafka.config 
+DATE=`date +%s`
 cat >$DIR/a2d2/config/kafka.config <<EOL
 {
-    "config-name": "${cfn_stack_name}-configuration",
+    "config-name": "${cfn_stack_name}-${DATE}",
     "config-description": "${cfn_stack_name} Kafka configuration",
     "cluster-arn": "${msk_cluster_arn}",
     "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"

@@ -104,10 +104,9 @@ In this step, you need the [AWS credentials](https://docs.aws.amazon.com/general
 At the end of this command output, you should see ```AWS Credentials Removed```. 
 
 
-#### Generate and upload configuration files
+#### Setup EKS cluster environment
 
-In this step, relevant data service configuration files are generated and uploaded to your Amazon S3 bucket for use by subsequent steps. In the *working directory*, run the command:
-
+To setup the eks cluster environment, in the *working directory*, run the command:
 
 		./scripts/setup-dev.sh
 
@@ -236,8 +235,8 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of 3600 GiB. Default value is 7200 GiB.|
 | FSxS3ImportPrefix | This is an *optional* advanced parameter whereby you specify FSx S3 bucket path prefix for importing data from S3 bucket. Leave blank to import the complete bucket.|
 | KeyPairName | This is a **required** parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
-| KubectlVersion | This is a **required** parameter whereby you specify EKS ```kubectl``` version. Default value is ```1.19.6/2021-01-05```. |
-| KubernetesVersion | This is a **required** parameter whereby you specify EKS cluster version. Default value is ```1.19```. |
+| KubectlVersion | This is a **required** parameter whereby you specify EKS ```kubectl``` version. Default value is ```1.21.2/2021-07-05```. |
+| KubernetesVersion | This is a **required** parameter whereby you specify EKS cluster version. Default value is ```1.21```. |
 | MSKBrokerNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for AWS MSK Broker. |
 | MSKNumberOfNodes | This is a **required** parameter whereby you specify the number of MSK Broker nodes, which must be >= 2. |
 | PrivateSubnet1CIDR | This is a **required** parameter whereby you specify the Private Subnet1 CIDR in Vpc CIDR. Default value is ```172.30.64.0/18```.|

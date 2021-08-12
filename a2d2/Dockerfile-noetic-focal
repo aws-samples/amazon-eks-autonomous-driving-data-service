@@ -9,9 +9,9 @@ RUN apt install -y gnupg2
 RUN apt install -y lsb-core 
 
 RUN apt install -y python3-minimal
-RUN ln -s $(which python3) /usr/bin/python
+RUN test -f /usr/bin/python || ln -s $(which python3) /usr/bin/python
 RUN apt install -y python3-pip
-RUN ln -s $(which pip3) /usr/bin/pip
+RUN test -f /usr/bin/pip || ln -s $(which pip3) /usr/bin/pip
 RUN pip install --upgrade pip
 RUN pip install awscli
 RUN pip install boto3

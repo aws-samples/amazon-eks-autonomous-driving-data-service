@@ -127,14 +127,14 @@ Parameters:
   KubernetesVersion:
     Description: Kubernetes Version
     Type: String
-    AllowedValues: [ "1.19" ]
-    Default: "1.19"
+    AllowedValues: [ "1.21" ]
+    Default: "1.21"
 
   KubectlVersion:
     Description: Kubectl Version
     Type: String
-    AllowedValues: [ "1.19.6/2021-01-05" ]
-    Default: "1.19.6/2021-01-05"
+    AllowedValues: [ "1.21.2/2021-07-05" ]
+    Default: "1.21.2/2021-07-05"
   
   EKSNodeVolumeSizeGiB:
     Description: EKS Node volume size GiB
@@ -779,6 +779,12 @@ Resources:
       ToPort: 65535
       CidrIp: '0.0.0.0/0'
 
+  MSKClusterLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "${AWS::StackName}-msk"
+      RetentionInDays: 30
+
   MSKCluster:
     Type: 'AWS::MSK::Cluster'
     DependsOn: [PrivateSubnet1RouteAssociation, PrivateSubnet2RouteAssociation, PrivateSubnet3RouteAssociation]
@@ -786,6 +792,11 @@ Resources:
       ClusterName: !Sub '${AWS::StackName}'
       KafkaVersion: 2.2.1
       NumberOfBrokerNodes: !Ref MSKNumberOfNodes
+      LoggingInfo:
+        BrokerLogs: 
+          CloudWatchLogs:
+            Enabled: true
+            LogGroup: !Ref MSKClusterLogGroup
       EncryptionInfo:
         EncryptionInTransit:
           ClientBroker: "TLS_PLAINTEXT"
@@ -1400,7 +1411,7 @@ Resources:
     UpdateReplacePolicy: Delete
     Properties:
       Encrypted : true
-      PerformanceMode: maxIO
+      PerformanceMode: generalPurpose
       FileSystemTags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-batch-fargate'
@@ -2012,6 +2023,7 @@ Resources:
                 PYTHON=python
                 
                 apt install -y python-minimal  python-pip
+                pip install --upgrade pip
                 pip install boto3
                 pip install kafka-python
                 pip install psycopg2-binary
@@ -2026,6 +2038,8 @@ Resources:
               fi
 
               apt install -y python3-minimal  python3-pip
+              test -f /usr/bin/python || ln -s `which python3` /usr/bin/python
+              pip3 install --upgrade pip
               pip3 install boto3
               pip3 install kafka-python
               pip3 install psycopg2-binary
