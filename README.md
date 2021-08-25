@@ -196,7 +196,9 @@ Below, we explain the semantics of the various fields in the data client request
 | ```requests.ros_topic``` | The ```ros_topic``` is a dictionary from ```sensor ids``` in the vehicle to ```ros``` topics.|
 | ```requests.data_type```| The ```data_type``` is a dictionary from ```sensor ids``` to ```ros``` data types.  |
 | ```requests.step``` | The ```step``` is the discreet time interval (microseconds) used to discretize the timespan between ```start_ts``` and ```stop_ts```. If ```requests.accept``` value contains ```multipart```, the data service responds with a ```rosbag``` file for each discreet ```step```: See [possible values](#AcceptValues) below. |
-| ```requests.accept``` | The ```accept``` specifies the response data staging format acceptable to the client: See [possible values](#AcceptValues) below.
+| ```requests.accept``` | The ```accept``` specifies the response data staging format acceptable to the client: See [possible values](#AcceptValues) below. |
+| ```requests.image``` | (Optional) The value ```undistorted``` undistorts the camera image. Undistoring an image slows down the image frame rate. |
+| ```requests.lidar_view``` | (Opitonal) The value ```vehicle``` transforms lidar points to ```vehicle``` frame of reference view. |
 |```requests.preview```| If the ```preview``` field is set to ```true```, the data service returns requested data over a single time ```step``` starting from ```start_ts``` , and ignores the ```stop_ts```.|
 
 #### <a name="AcceptValues"></a>  Possible ```requests.accept``` field values
