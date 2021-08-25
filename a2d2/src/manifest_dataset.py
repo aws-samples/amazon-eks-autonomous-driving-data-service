@@ -51,6 +51,9 @@ class ManifestDataset():
         self.fetch()
         self.pre_fetch_thread.join()
 
+    def is_open(self):
+        return self.start_ts < self.stop_ts
+        
     def read(self, query=None):
         self.next_batch=self.dbreader.query(query)
 

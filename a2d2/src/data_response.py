@@ -35,7 +35,7 @@ from util import random_string
 
 class DataResponse(Process):
     def __init__(self, dbconfig=None, servers=None,
-                request=None, data_store=None):
+                request=None, data_store=None, calibration=None):
         Process.__init__(self)
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
@@ -46,13 +46,14 @@ class DataResponse(Process):
         self.servers = servers
         self.request = request
         self.data_store = data_store
+        self.calibration = calibration
 
 
     def rosbag_response(self):
         try:
             t = RosbagProducer(dbconfig=self.dbconfig, 
                     servers=self.servers, request=self.request,
-                    data_store=self.data_store)
+                    data_store=self.data_store, calibration=self.calibration)
 
             t.start()
             t.join()

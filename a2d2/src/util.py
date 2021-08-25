@@ -32,7 +32,7 @@ import sensor_msgs.point_cloud2 as pc2
 
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
-
+import rosbag
 
 def get_s3_client():
     s3_client = None
@@ -92,7 +92,6 @@ def get_data_class(data_type):
 
 def get_topics_types(bag_path):
 
-    import rosbag
     bag = rosbag.Bag(bag_path)
     topics = bag.get_type_and_topic_info()[1] 
     topic_types = dict() 
@@ -112,18 +111,14 @@ def is_close_msg(json_msg):
 
     return close
 
-def npz_pcl_sparse(npz=None, ts=None, frame_id=None):
+def ros_pcl2_sparse(points=None, reflectance=None, rows=None, cols=None, ts=None, frame_id=None):
   
-    points = npz["pcloud_points"]
-    rows=npz["pcloud_attr.row"]
     rows = (rows + 0.5).astype(np.int)
     height= np.amax(rows) + 1
     
-    cols=npz["pcloud_attr.col"]
     cols = (cols + 0.5).astype(np.int)
     width=np.amax(cols) + 1
-   
-    reflectance = npz["pcloud_attr.reflectance"]
+
     colors = np.stack([reflectance, reflectance, reflectance], axis=1)
     pca = np.full((height, width, 3), np.inf)
     ca =np.full((height, width, 3), np.inf)
@@ -138,8 +133,9 @@ def npz_pcl_sparse(npz=None, ts=None, frame_id=None):
     
     msg.header.frame_id = frame_id
 
-    msg.header.stamp.secs = divmod(ts, 1000000 )[0] #stamp in micro secs
-    msg.header.stamp.nsecs = divmod(ts, 1000000 )[1]*1000 # nano secs
+    _stamp = divmod(ts, 1000000 ) #  time stamp is in micro secs
+    msg.header.stamp.secs = _stamp[0] # secs
+    msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
     
     msg.width = width
     msg.height = height
@@ -162,10 +158,8 @@ def npz_pcl_sparse(npz=None, ts=None, frame_id=None):
 
     return msg
 
-def npz_pcl_dense(npz=None, ts=None, frame_id=None):
+def ros_pcl2_dense(points=None, reflectance=None, ts=None, frame_id=None):
   
-    points = npz["pcloud_points"]
-    reflectance = npz["pcloud_attr.reflectance"]
     colors = np.stack([reflectance, reflectance, reflectance], axis=1)
     assert(points.shape == colors.shape)
    
@@ -173,8 +167,9 @@ def npz_pcl_dense(npz=None, ts=None, frame_id=None):
     
     msg.header.frame_id = frame_id
 
-    msg.header.stamp.secs = divmod(ts, 1000000 )[0] #stamp in micro secs
-    msg.header.stamp.nsecs = divmod(ts, 1000000 )[1]*1000 # nano secs
+    _stamp = divmod(ts, 1000000 ) #  time stamp is in micro secs
+    msg.header.stamp.secs = _stamp[0] # secs
+    msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
     
     msg.width = points.shape[0]
     msg.height = 1

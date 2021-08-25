@@ -73,8 +73,6 @@ class RosbagConsumer(Process):
             msg = self.s3_read_resp.get(block=drain)
             bag_info = msg.split(" ")
             bag_path = bag_info[0]
-            bucket = bag_info[1]
-            key = bag_info[2]
 
             ros_publishers = self.get_ros_publishers(bag_path)
 
@@ -83,8 +81,11 @@ class RosbagConsumer(Process):
                 ros_publishers[ros_topic].publish(ros_msg)
             bag.close()
             self.s3_delete_req.put(msg)
-        except:
-            pass
+        except Exception as _:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.info(str(exc_type))
+            self.logger.info(str(exc_value))
 
     def publish_bag(self, json_msg):
         if self.s3:
@@ -132,11 +133,11 @@ class RosbagConsumer(Process):
                         break
 
                     self.publish_bag(json_msg)
-                except Exception as e:
+                except Exception as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-                    print(str(e))
-                    break
+                    self.logger.error(str(exc_type))
+                    self.logger.error(str(exc_value))
 
             if self.s3:
                 self.read_s3(drain=True)
@@ -158,7 +159,8 @@ class RosbagConsumer(Process):
             admin.delete_topics([self.response_topic])
             admin.close()
 
-        except Exception as e:
+        except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            print(str(e))
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))

@@ -63,7 +63,8 @@ class DataService(threading.Thread):
                     t = DataResponse(dbconfig=self.config['database'], 
                         servers=self.config["servers"], 
                         request=request, 
-                        data_store=self.config['data_store'])
+                        data_store=self.config['data_store'],
+                        calibration=self.config['calibration'])
 
                     if len(tasks) < max_tasks:
                         tasks.append(t)

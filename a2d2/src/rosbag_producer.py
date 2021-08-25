@@ -24,13 +24,9 @@ import sys, traceback
 from multiprocessing import Process, Queue
 import logging, time
 import json
-import random
-import string
 import cv2
 import os
 import threading
-import boto3
-import boto3.session
 import numpy as np
 
 import cv_bridge
@@ -40,7 +36,8 @@ from sensor_msgs.msg import Image
 
 from kafka import KafkaProducer
 from manifest_dataset import ManifestDataset
-from util import random_string, get_s3_resource, get_s3_client, npz_pcl_dense, mkdir_p
+from util import random_string, get_s3_resource, get_s3_client, ros_pcl2_dense, mkdir_p
+from view import transform_from_to
 from s3_reader import S3Reader
 
 class Qmsg:
@@ -50,7 +47,7 @@ class Qmsg:
 
 class RosbagProducer(Process):
     def __init__(self, dbconfig=None, servers=None,
-                request=None, data_store=None):
+                request=None, data_store=None, calibration=None):
         Process.__init__(self)
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
@@ -59,18 +56,24 @@ class RosbagProducer(Process):
 
         self.servers = servers
         self.request = request
+
         self.data_store = data_store
+        self.calibration = calibration
         self.tmp = os.getenv("TMP", default="/tmp")
 
         self.img_cv_bridge = cv_bridge.CvBridge()
 
         self.manifests = dict() 
-        self.last_topic = None
         sensors = self.request['sensor_id']
-        self.topic_queue = dict()
+        self.topic_dict = dict()
+        self.topic_list = list()
+        self.topic_index = 0
+        self.last_topic = None
         for s in sensors:
             self.manifests[s] = self.create_manifest(dbconfig=dbconfig, sensor_id=s)
-            self.topic_queue[self.request['ros_topic'][s]] = []
+            _topic = self.request['ros_topic'][s]
+            self.topic_dict[_topic] = []
+            self.topic_list.append(_topic)
 
         if len(sensors) > 1:
             self.bag_lock = threading.Lock()
@@ -102,6 +105,9 @@ class RosbagProducer(Process):
             if self.multipart:
                 self.chunk_count = 6 
 
+        cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
+        cal_data = cal_obj.get()['Body'].read().decode('utf-8')
+        self.cal_json = json.loads(cal_data)
 
     def create_manifest(self, dbconfig=None, sensor_id=None):
         manifest = ManifestDataset(dbconfig=dbconfig, 
@@ -141,6 +147,26 @@ class RosbagProducer(Process):
         efs_root = efs_config['root']
         pcl_path = os.path.join(efs_root, pcl_path)
         npz[id] =  np.load(pcl_path)
+
+    @staticmethod
+    def undistort_image(image=None, lens=None, dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
+            
+        if (lens == 'Fisheye'):
+            return cv2.fisheye.undistortImage(image, intr_mat_dist,
+                                        D=dist_parms, Knew=intr_mat_undist)
+        elif (lens == 'Telecam'):
+            return cv2.undistort(image, intr_mat_dist, 
+                        distCoeffs=dist_parms, newCameraMatrix=intr_mat_undist)
+        else:
+            return image
+
+    @staticmethod
+    def project_lidar_from_to(points=None, trans=None):
+        points_hom = np.ones((points.shape[0], 4))
+        points_hom[:, 0:3] = points
+        points_trans = (np.matmul(trans, points_hom.T)).T 
+    
+        return points_trans
 
     def create_bag_dir(self):
         if self.accept.startswith('s3/'):
@@ -197,46 +223,51 @@ class RosbagProducer(Process):
         try:
             if self.bag_lock:
                 self.bag_lock.acquire()
-                if topic == self.last_topic:
-                    self.topic_queue[topic].append(Qmsg(msg=msg, ts=ts))
-                    msg = None
-                    ts = None
-                    for k in self.topic_queue.keys():
-                        if k != topic and len(self.topic_queue[k]) > 0:
-                            topic = k
-                            front = self.topic_queue[k].pop(0)
-                            msg = front.msg
-                            ts = front.ts
-                            break
-                    if not msg:
-                        return
 
-                else:
-                    if len(self.topic_queue[topic]) > 0:
-                        self.topic_queue[topic].append(Qmsg(msg=msg, ts=ts))
-                        front = self.topic_queue[topic].pop(0)
+            _ntopics = len(self.topic_list)
+            if _ntopics > 1:
+                # add message to topic queue
+                self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
+                
+                msg = None
+                ts = None
+                topic = None
+
+                # rotate through topics
+                for _ in range(_ntopics):
+                    self.topic_index = (self.topic_index + 1) % _ntopics
+                    _topic = self.topic_list[ self.topic_index ]
+                    if _topic == self.last_topic:
+                        continue
+
+                    if self.topic_dict[_topic]:
+                        front = self.topic_dict[_topic].pop(0)
                         msg = front.msg
                         ts = front.ts
+                        topic = _topic
+                        break
 
-            if not self.bag:
-                self.open_bag()
-            self.last_topic = topic
-            self.bag.write(topic, msg, ts)
-            if self.multipart:
-                self.msg_count += 1
-                if self.msg_count % self.chunk_count == 0:
-                    self.close_bag(s3_client=s3_client)
-        except Exception as e:
-            print("write bag exception")
+            if topic and msg and ts:
+                if not self.bag:
+                    self.open_bag()
+            
+                self.bag.write(topic, msg, ts)
+                self.last_topic = topic
+                if self.multipart:
+                    self.msg_count += 1
+                    if self.msg_count % self.chunk_count == 0:
+                        self.close_bag(s3_client=s3_client)
+        except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.logger.error(str(e))
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
             raise
         finally:
             if self.bag_lock:
                 self.bag_lock.release()
 
-    def s3_bag_images(self, manifest=None,  ros_topic=None):
+    def s3_bag_images(self, manifest=None,  ros_topic=None, sensor=None):
 
         s3_client = get_s3_client()
 
@@ -246,8 +277,20 @@ class RosbagProducer(Process):
         s3_reader = S3Reader(req, resp)
         s3_reader.start()
 
+        cam_name = sensor.rsplit("/", 1)[1]
+        # get parameters from calibration json 
+        _image_request = self.request.get("image", "original")
+
+        if _image_request == "undistorted":
+            intr_mat_undist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrix'])
+            intr_mat_dist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrixOriginal'])
+            dist_parms = np.asarray(self.cal_json['cameras'][cam_name]['Distortion'])
+            lens = self.cal_json['cameras'][cam_name]['Lens']
+
         while True:
-            files = manifest.fetch()
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
             if not files:
                 break
 
@@ -259,14 +302,16 @@ class RosbagProducer(Process):
             for f in files:
                 path = resp.get(block=True).split(" ", 1)[0]
                 image_data = cv2.imread(path)
+                _image = RosbagProducer.undistort_image(image_data, lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data
                 image_ts = int(f[2])
-                ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(image_data)
-                ros_image_msg.header.stamp.secs = divmod(image_ts, 1000000 )[0] #stamp in micro secs
-                ros_image_msg.header.stamp.nsecs = divmod(image_ts, 1000000 )[1]*1000 # nano secs
+                ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
+                _stamp = divmod(image_ts, 1000000 ) #stamp in micro secs
+                ros_image_msg.header.stamp.secs = _stamp[0] # secs
+                ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
                 self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp, s3_client=s3_client)
                 os.remove(path)
                 if self.bag_lock:
-                    factor = len(self.topic_queue[ros_topic]) + 1
+                    factor = len(self.topic_dict[ros_topic]) + 1
                     time.sleep(.000001*factor)
 
             if self.request['preview']:
@@ -277,7 +322,7 @@ class RosbagProducer(Process):
         if s3_reader.is_alive():
             s3_reader.terminate()
 
-    def bag_images(self, manifest=None,  ros_topic=None):
+    def bag_images(self, manifest=None,  ros_topic=None, sensor=None):
 
         if self.data_store['input'] == 's3':
             self.s3_bag_images(manifest=manifest, ros_topic=ros_topic)
@@ -287,8 +332,19 @@ class RosbagProducer(Process):
         image_reader = dict() 
         image_ts = dict()
 
+        cam_name = sensor.rsplit("/", 1)[1]
+        # get parameters from calibration json 
+        _image_request = self.request.get("image", "original")
+        if _image_request == "undistorted":
+            intr_mat_undist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrix'])
+            intr_mat_dist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrixOriginal'])
+            dist_parms = np.asarray(self.cal_json['cameras'][cam_name]['Distortion'])
+            lens = self.cal_json['cameras'][cam_name]['Lens']
+        
         while True:
-            files = manifest.fetch()
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
             if not files:
                 break
 
@@ -312,21 +368,24 @@ class RosbagProducer(Process):
                 idx += 1
 
             count = idx
+        
             for i in range(0, count):
                 image_reader[i].join()
-                ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(image_data[i])
-                ros_image_msg.header.stamp.secs = divmod(image_ts[i], 1000000 )[0] #stamp in micro secs
-                ros_image_msg.header.stamp.nsecs = divmod(image_ts[i], 1000000 )[1]*1000 # nano secs
+                _image = RosbagProducer.undistort_image(image_data[i], lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data[i]
+                ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
+                _stamp = divmod(image_ts[i], 1000000 ) #stamp in micro secs
+                ros_image_msg.header.stamp.secs = _stamp[0] # secs
+                ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
                 self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp)
                 if self.bag_lock:
-                    factor = len(self.topic_queue[ros_topic]) + 1
+                    factor = len(self.topic_dict[ros_topic]) + 1
                     time.sleep(.000001*factor)
 
             if self.request['preview']:
                 break
 
 
-    def s3_bag_pcl(self, manifest=None,  ros_topic=None):
+    def s3_bag_pcl(self, manifest=None,  ros_topic=None, sensor=None):
 
         s3_client = get_s3_client()
 
@@ -336,8 +395,14 @@ class RosbagProducer(Process):
         s3_reader = S3Reader(req, resp)
         s3_reader.start()
 
+        cam_name = sensor.rsplit("/", 1)[1]
+        _lidar_view = self.request.get("lidar_view", "camera")
+        vehicle_transform_matrix = transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])  if _lidar_view == "vehicle" else None
+        
         while True:
-            files = manifest.fetch()
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
             if not files:
                 break
 
@@ -350,11 +415,20 @@ class RosbagProducer(Process):
                 path = resp.get(block=True).split(" ", 1)[0]
                 npz = np.load(path)
                 pcl_ts= int(f[2])
-                ros_pcl_msg = npz_pcl_dense(npz=npz,ts=pcl_ts,frame_id="map")
+                _reflectance = npz["pcloud_attr.reflectance"]
+                if _lidar_view == "vehicle":
+                    points_trans = RosbagProducer.project_lidar_from_to(points=npz["pcloud_points"], trans=vehicle_transform_matrix)
+                    _points = points_trans[:,0:3]
+                    if np.isnan(_points).any():
+                        self.logger.info("Transformed lidar points contain NaN; skipping")
+                        continue
+                else:
+                    _points = npz["pcloud_points"]
+                ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts,frame_id="map")
                 self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp, s3_client=s3_client)
                 os.remove(path)
                 if self.bag_lock:
-                    factor = len(self.topic_queue[ros_topic]) + 1
+                    factor = len(self.topic_dict[ros_topic]) + 1
                     time.sleep(.000001*factor)
 
             if self.request['preview']:
@@ -365,18 +439,24 @@ class RosbagProducer(Process):
         if s3_reader.is_alive():
             s3_reader.terminate()
 
-    def bag_pcl(self, manifest=None,  ros_topic=None):
+    def bag_pcl(self, manifest=None,  ros_topic=None, sensor=None):
 
         if self.data_store['input'] == 's3':
-            self.s3_bag_pcl(manifest=manifest, ros_topic=ros_topic)
+            self.s3_bag_pcl(manifest=manifest, ros_topic=ros_topic, sensor=None)
             return
 
         pcl_reader = dict() 
         pcl_ts = dict()
         npz = dict()
         
+        cam_name = sensor.rsplit("/", 1)[1]
+        _lidar_view = self.request.get("lidar_view", "camera")
+        vehicle_transform_matrix = transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])  if _lidar_view == "vehicle"  else None
+       
         while True:
-            files = manifest.fetch()
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
             if not files:
                 break
 
@@ -404,27 +484,36 @@ class RosbagProducer(Process):
             count = idx
             for i in range(0, count):
                 pcl_reader[i].join()
-                ros_pcl_msg = npz_pcl_dense(npz=npz[i],ts=pcl_ts[i],frame_id="map")
+                _reflectance = npz[i]["pcloud_attr.reflectance"]
+                if _lidar_view == "vehicle":
+                    points_trans = RosbagProducer.project_lidar_from_to(points=npz[i]["pcloud_points"], trans=vehicle_transform_matrix)
+                    _points = points_trans[:,0:3]
+                    if np.isnan(_points).any():
+                        self.logger.info("Transformed lidar points contain NaN; skipping")
+                        continue
+                else:
+                    _points = npz[i]["pcloud_points"]
+                ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts[i],frame_id="map")
                 self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp)
                 if self.bag_lock:
-                    factor = len(self.topic_queue[ros_topic]) + 1
+                    factor = len(self.topic_dict[ros_topic]) + 1
                     time.sleep(.000001*factor)
 
             if self.request['preview']:
                 break
 
     
-    def bag_data(self, manifest=None, data_type=None, ros_topic=None):
+    def bag_data(self, manifest=None, data_type=None, ros_topic=None, sensor=None):
         try:
             if data_type ==  'sensor_msgs/Image':
-                self.bag_images(manifest=manifest, ros_topic=ros_topic)
+                self.bag_images(manifest=manifest, ros_topic=ros_topic, sensor=sensor)
             elif data_type == 'sensor_msgs/PointCloud2':
-                self.bag_pcl(manifest=manifest, ros_topic=ros_topic)
-        except Exception as e:
-            print("bag data exception")
+                self.bag_pcl(manifest=manifest, ros_topic=ros_topic, sensor=sensor)
+        except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.logger.error(str(e))
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
         
 
     def run(self):
@@ -444,7 +533,8 @@ class RosbagProducer(Process):
                 ros_topic = self.request['ros_topic'][s]
                 t = threading.Thread(target=self.bag_data, 
                     kwargs={"manifest": manifest, "data_type": data_type, 
-                            "ros_topic": ros_topic })
+                            "ros_topic": ros_topic,
+                            "sensor":  s})
                 tasks.append(t)
                 t.start()
 
@@ -460,9 +550,9 @@ class RosbagProducer(Process):
             self.producer.flush()
             self.producer.close()
             print("completed request:"+resp_topic)
-        except Exception as e:
-            print("run exception")
+        except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.logger.error(str(e))
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
         

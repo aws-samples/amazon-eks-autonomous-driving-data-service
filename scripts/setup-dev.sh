@@ -45,6 +45,7 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
     -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
     -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
+    -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
     -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
     $DIR/a2d2/charts/a2d2-data-service/values.yaml
 
