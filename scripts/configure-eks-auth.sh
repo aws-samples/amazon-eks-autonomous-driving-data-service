@@ -15,6 +15,9 @@
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+kubectl get svc && echo "kubectl is already configured" && exit 0
+
 # set aws region
 aws_region=$(aws configure get region)
 [[ -z "${desktop_role_arn}" ]] && echo "desktop_role_arn variable required" && exit 1
