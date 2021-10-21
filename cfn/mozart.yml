@@ -2044,6 +2044,7 @@ Resources:
               pip3 install kafka-python
               pip3 install psycopg2-binary
               pip3 install --upgrade awscli
+              pip3 install jupyterlab
 
               # install ros
               echo "install ros $ROS ..."
