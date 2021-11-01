@@ -231,6 +231,11 @@ Parameters:
     AllowedValues:
      - "melodic"
      - "noetic"
+  
+  FargateComputeMax:
+    Description: Maximum size of compute environment in vCpus
+    Type: Number
+    Default: 1024
 
 Conditions:
   CreateEksKey: !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
@@ -1589,11 +1594,12 @@ Resources:
       State: ENABLED
       ComputeResources:
         Type: "FARGATE_SPOT"
-        MaxvCpus: 256
+        MaxvCpus: !Ref FargateComputeMax
         Subnets: 
           - !Ref BatchFargatePrivateSubnet
         SecurityGroupIds:
           - !GetAtt BatchFargateSecurityGroup.GroupId
+
       ServiceRole: !GetAtt BatchServiceRole.Arn
       Tags:
         Name: !Ref AWS::StackName
