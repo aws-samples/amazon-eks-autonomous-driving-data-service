@@ -17,7 +17,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import boto3
 import os
-import tarfile
 import time
 import json
 
@@ -43,16 +42,15 @@ def main(config):
     job_queue = config["job_queue"]
     job_definition = config["job_definition"]
     s3_python_script = config["s3_python_script"]
-    tmp_dir = config["tmp_dir"]
-
-    os.makedirs(tmp_dir, mode=0o777, exist_ok=True)
+    s3_json_config = config["s3_json_config"]
 
     s3_client = boto3.client('s3')
     batch_client = boto3.client('batch')
    
     # get a list of objects in the source bucket
     jobs={}
-    
+    aws_region = os.environ['AWS_DEFAULT_REGION']
+
     for key in s3_bucket_keys(s3_client, source_bucket, source_prefix):
         if key.find(".tar") == -1:
             s3_client.copy_object(Bucket=dest_bucket, Key=f'{dest_prefix}/{key}',
@@ -66,16 +64,19 @@ def main(config):
                 retryStrategy={'attempts': 2},
                 timeout={'attemptDurationSeconds': 86400},
                 containerOverrides={
-                    'command': ['--source-bucket', source_bucket, '--source-key', 
-                        key,'--dest-bucket', dest_bucket, '--dest-prefix', dest_prefix],
+                    'command': ['--key', f'{key}'],
                     'environment': [
                         {
                             'name': 'S3_PYTHON_SCRIPT',
                             'value': s3_python_script
                         },
                         {
-                            'name': 'TMP',
-                            'value': tmp_dir
+                            'name': 'S3_JSON_CONFIG',
+                            'value': s3_json_config
+                        },
+                        {
+                            'name': 'AWS_DEFAULT_REGION',
+                            'value': aws_region
                         }
                     ]
                 })

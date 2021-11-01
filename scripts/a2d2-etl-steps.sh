@@ -35,12 +35,15 @@ $scripts_dir/pythonfroms3-focal-ecr-image.sh
 # create requirements.txt
 cat >$scripts_dir/requirements.txt <<EOL
 psycopg2-binary
+pandas
+numpy
 EOL
 
 aws s3 cp $scripts_dir/a2d2-metadata-etl.py s3://$s3_bucket_name/scripts/a2d2-metadata-etl.py
 aws s3 cp $scripts_dir/s3-extract-tar.py s3://$s3_bucket_name/scripts/s3-extract-tar.py
 aws s3 cp $scripts_dir/s3-extract-load.py s3://$s3_bucket_name/scripts/s3-extract-load.py
 aws s3 cp $scripts_dir/glue-etl-job.py s3://$s3_bucket_name/scripts/glue-etl-job.py
+aws s3 cp $scripts_dir/extract-bus-data.py s3://$s3_bucket_name/scripts/extract-bus-data.py
 aws s3 cp $scripts_dir/setup-redshift-db.py s3://$s3_bucket_name/scripts/setup-redshift-db.py
 aws s3 cp $scripts_dir/requirements.txt s3://$s3_bucket_name/scripts/requirements.txt
 
@@ -59,6 +62,21 @@ cat >$DIR/a2d2/config/glue.config <<EOL
 EOL
 chown ubuntu:ubuntu $DIR/a2d2/config/glue.config
 
+s3_bus_output_prefix="bus_data/a2d2/$(date +%s)"
+
+cat >$DIR/a2d2/config/bus_data.config <<EOL
+{
+  "s3_bucket": "${s3_bucket_name}",
+  "s3_input_prefix": "a2d2/camera_lidar",
+  "s3_input_suffix": "_bus_signals.json",
+  "s3_output_prefix": "${s3_bus_output_prefix}",
+  "vehicle_id": "a2d2",
+  "tmp_dir": "${tmp_dir}",
+  "script_location": "s3://${s3_bucket_name}/scripts/extract-bus-data.py"
+}
+EOL
+chown ubuntu:ubuntu $DIR/a2d2/config/bus_data.config
+
 aws s3 cp $DIR/a2d2/data/sensors.csv s3://${s3_bucket_name}/redshift/sensors.csv
 aws s3 cp $DIR/a2d2/data/vehicle.csv s3://${s3_bucket_name}/redshift/vehicle.csv
             
@@ -75,10 +93,12 @@ cat >$DIR/a2d2/config/redshift.config <<EOL
     "CREATE TABLE IF NOT EXISTS a2d2.sensor ( sensorid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (sensorid)) DISTSTYLE ALL",
     "CREATE TABLE IF NOT EXISTS a2d2.vehicle ( vehicleid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (vehicleid)) DISTSTYLE ALL",
     "CREATE TABLE IF NOT EXISTS a2d2.drive_data ( vehicle_id varchar(255) encode Text255 not NULL, scene_id varchar(255) encode Text255 not NULL, sensor_id varchar(255) encode Text255 not NULL, data_ts BIGINT not NULL sortkey, s3_bucket VARCHAR(255) encode lzo NOT NULL, s3_key varchar(255) encode lzo NOT NULL, primary key(vehicle_id, scene_id), FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid), FOREIGN KEY(sensor_id) references a2d2.sensor(sensorid)) DISTSTYLE AUTO",
+    "CREATE TABLE IF NOT EXISTS a2d2.bus_data ( vehicle_id varchar(255) encode Text255 not NULL, scene_id varchar(255) encode Text255 not NULL, data_ts BIGINT not NULL sortkey, acceleration_x FLOAT4 not NULL, acceleration_y FLOAT4 not NULL, acceleration_z FLOAT4 not NULL, accelerator_pedal FLOAT4 not NULL, accelerator_pedal_gradient_sign SMALLINT not NULL, angular_velocity_omega_x FLOAT4 not NULL, angular_velocity_omega_y FLOAT4 not NULL, angular_velocity_omega_z FLOAT4 not NULL, brake_pressure FLOAT4 not NULL, distance_pulse_front_left FLOAT4 not NULL, distance_pulse_front_right FLOAT4 not NULL, distance_pulse_rear_left FLOAT4 not NULL, distance_pulse_rear_right FLOAT4 not NULL, latitude_degree FLOAT4 not NULL, latitude_direction SMALLINT not NULL, longitude_degree FLOAT4 not NULL, longitude_direction SMALLINT not NULL, pitch_angle FLOAT4 not NULL, roll_angle FLOAT4 not NULL, steering_angle_calculated FLOAT4 not NULL, steering_angle_calculated_sign SMALLINT not NULL, vehicle_speed FLOAT4 not NULL, primary key(vehicle_id, scene_id), FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid) ) DISTSTYLE AUTO",
     "COPY a2d2.sensor FROM 's3://${s3_bucket_name}/redshift/sensors.csv' iam_role  '${redshift_cluster_role_arn}' CSV",
     "COPY a2d2.vehicle FROM 's3://${s3_bucket_name}/redshift/vehicle.csv' iam_role  '${redshift_cluster_role_arn}' CSV",
     "COPY a2d2.drive_data FROM 's3://${s3_bucket_name}/${s3_glue_output_prefix}/image/' iam_role  '${redshift_cluster_role_arn}' CSV IGNOREHEADER 1",
-    "COPY a2d2.drive_data FROM 's3://${s3_bucket_name}/${s3_glue_output_prefix}/pcld/' iam_role  '${redshift_cluster_role_arn}' CSV IGNOREHEADER 1"
+    "COPY a2d2.drive_data FROM 's3://${s3_bucket_name}/${s3_glue_output_prefix}/pcld/' iam_role  '${redshift_cluster_role_arn}' CSV IGNOREHEADER 1",
+    "COPY a2d2.bus_data FROM 's3://${s3_bucket_name}/${s3_bus_output_prefix}/' iam_role  '${redshift_cluster_role_arn}' CSV IGNOREHEADER 1"
   ]
 }
 EOL
@@ -94,17 +114,21 @@ cat >$DIR/a2d2/config/a2d2-data.config <<EOL
   "job_definition": "${batch_job_definition}",
   "job_queue": "${batch_job_queue}",
   "s3_python_script": "s3://${s3_bucket_name}/scripts/s3-extract-tar.py",
+  "s3_json_config": "s3://${s3_bucket_name}/config/a2d2-data.config",
   "tmp_dir": "${tmp_dir}"
 }
 EOL
 
 aws s3 cp $DIR/a2d2/config/a2d2-data.config s3://$s3_bucket_name/config/a2d2-data.config
 aws s3 cp $DIR/a2d2/config/glue.config s3://$s3_bucket_name/config/glue.config
+aws s3 cp $DIR/a2d2/config/bus_data.config s3://$s3_bucket_name/config/bus_data.config
 aws s3 cp $DIR/a2d2/config/redshift.config s3://$s3_bucket_name/config/redshift.config
 
 job_name1="a2d2-extract-raw-data-$(date +%s)"
-job_name2="a2d2-extract-metadata-$(date +%s)"
-job_name3="a2d2-upload-metadata-$(date +%s)"
+job_name2="a2d2-extract-meta-data-$(date +%s)"
+job_name3="a2d2-extract-bus-data-$(date +%s)"
+job_name4="a2d2-load-data-$(date +%s)"
+
 # Create a2d2-sfn.configs 
 cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
 {
@@ -159,6 +183,34 @@ cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
           "RetryStrategy": {"Attempts": 2},
           "Timeout": {"AttemptDurationSeconds": 3600}
         },
+        "Next": "A2D2ExtractBusData"
+      },
+      "A2D2ExtractBusData": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::batch:submitJob.sync",
+        "Parameters": {
+          "JobQueue": "${batch_job_queue}",
+          "JobDefinition": "${batch_job_definition}",
+          "JobName": "${job_name3}",
+          "ContainerOverrides": {
+            "Environment": [
+              {
+                "Name": "S3_PYTHON_SCRIPT",
+                "Value": "s3://${s3_bucket_name}/scripts/extract-bus-data.py"
+              },
+              {
+                "Name": "S3_JSON_CONFIG",
+                "Value": "s3://${s3_bucket_name}/config/bus_data.config"
+              },
+              {
+                "Name": "S3_REQUIREMENTS_TXT",
+                "Value": "s3://$s3_bucket_name/scripts/requirements.txt"
+              }
+            ] 
+          },
+          "RetryStrategy": {"Attempts": 2},
+          "Timeout": {"AttemptDurationSeconds": 3600}
+        },
         "Next": "A2D2UploadMetaData"
       },
       "A2D2UploadMetaData": {
@@ -167,7 +219,7 @@ cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
         "Parameters": {
           "JobQueue": "${batch_job_queue}",
           "JobDefinition": "${batch_job_definition}",
-          "JobName": "${job_name3}",
+          "JobName": "${job_name4}",
           "ContainerOverrides": {
             "Environment": [
               {
