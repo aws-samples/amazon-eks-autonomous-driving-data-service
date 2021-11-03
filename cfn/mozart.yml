@@ -1876,10 +1876,9 @@ Resources:
               apt-key fingerprint 0EBFCD88
               add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
    
-              # setup software repo for fsx-lustre client
+              # add key for fsx-lustre client
               wget -O - https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-ubuntu-public-key.asc | apt-key add -
-              bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu bionic main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list'
-
+              
               # add key for NICE-DCV
               wget https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY
               gpg --import NICE-GPG-KEY
@@ -1921,6 +1920,8 @@ Resources:
 
               if [[ $VERSION == "18.04" ]]
               then
+                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu bionic main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+
                 apt install -y lightdm
                 apt -y upgrade
                 echo "/usr/sbin/lightdm" > /etc/X11/default-display-manager
@@ -1942,6 +1943,8 @@ Resources:
                 apt install -y  ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu1804.deb
               elif [[ $VERSION == "20.04" ]]
               then
+                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+                
                 apt install -y gdm3
                 apt -y upgrade
                 echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
