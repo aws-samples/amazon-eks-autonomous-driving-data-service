@@ -1,6 +1,6 @@
 {
 	"delay": 0,
-	"servers": "b-2.portland.evut7e.c7.kafka.us-west-2.amazonaws.com:9092,b-3.portland.evut7e.c7.kafka.us-west-2.amazonaws.com:9092,b-1.portland.evut7e.c7.kafka.us-west-2.amazonaws.com:9092",
+	"servers": "<kafka broker servers>",
 	"requests": [{
 		"kafka_topic": "a2d2", 
 		"vehicle_id": "a2d2",
@@ -34,6 +34,6 @@
 		"step": 1000000,
 		"accept": "fsx/multipart/rosbag",
 		"lidar_view": "vehicle",
-		"preview": false 
+		"preview": true 
 	}]
 }
