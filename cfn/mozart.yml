@@ -236,6 +236,15 @@ Parameters:
     Description: Maximum size of compute environment in vCpus
     Type: Number
     Default: 1024
+  
+  FargateComputeType:
+    Description: Fargate compute type
+    Type: String
+    Default: "FARGATE_SPOT"
+    AllowedValues:
+      - "FARGATE_SPOT"
+      - "FARGATE"
+       
 
 Conditions:
   CreateEksKey: !Equals [ !Ref EKSEncryptSecretsKmsKeyArn, "" ]
@@ -591,24 +600,78 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref 'AWS::StackName'
-  VpcSecurityGroupIngress: 
+  VpcSecurityGroupIngressFSx1: 
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
-      Description: Ingress from within the VPC security group
+      Description: Ingress from within the VPC security group for FSx
       GroupId: !GetAtt VpcSecurityGroup.GroupId
       IpProtocol: tcp
       FromPort: 988
-      ToPort: 9094
+      ToPort: 988
       SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
-  VpcSecurityGroupCIDRIngress: 
+  VpcSecurityGroupCIDRIngressFSx1: 
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
-      Description: Ingress from within the VPC security group CIDR
+      Description: Ingress from within the VPC security group CIDR for FSx
       GroupId: !GetAtt VpcSecurityGroup.GroupId
       CidrIp: !Ref VpcCIDR
       IpProtocol: tcp
       FromPort: 988
-      ToPort: 9094
+      ToPort: 988
+  VpcSecurityGroupIngressFSx2: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group for FSx
+      GroupId: !GetAtt VpcSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 1021
+      ToPort: 1023
+      SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
+  VpcSecurityGroupCIDRIngressFSx2: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group CIDR for FSx
+      GroupId: !GetAtt VpcSecurityGroup.GroupId
+      CidrIp: !Ref VpcCIDR
+      IpProtocol: tcp
+      FromPort: 1021
+      ToPort: 1023
+  VpcSecurityGroupIngressEfs: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group for Efs
+      GroupId: !GetAtt VpcSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
+  VpcSecurityGroupCIDRIngressEfs: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group CIDR for Efs
+      GroupId: !GetAtt VpcSecurityGroup.GroupId
+      CidrIp: !Ref VpcCIDR
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+  VpcSecurityGroupIngressRosBridge: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group for Ros bridge
+      GroupId: !GetAtt VpcSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 9090
+      ToPort: 9090
+      SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
+  VpcSecurityGroupCIDRIngressRosBridge: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from within the VPC security group CIDR for Ros bridge
+      GroupId: !GetAtt VpcSecurityGroup.GroupId
+      CidrIp: !Ref VpcCIDR
+      IpProtocol: tcp
+      FromPort: 9090
+      ToPort: 9090
   VpcSecurityGroupCIDREgress: 
     Type: 'AWS::EC2::SecurityGroupEgress'
     Properties:
@@ -1092,7 +1155,7 @@ Resources:
 
   FSxFileSystem:
     Type: AWS::FSx::FileSystem
-    DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngress ]
+    DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngressFSx1, VpcSecurityGroupIngressFSx2]
     Properties: 
       FileSystemType: 'LUSTRE'
       LustreConfiguration: 
@@ -1120,7 +1183,7 @@ Resources:
           Value: !Sub '${AWS::StackName}-data-service'
   MountTarget1:
     Type: 'AWS::EFS::MountTarget'
-    DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngress ]
+    DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngressEfs ]
     Properties:
       FileSystemId:  !Ref EFSFileSystem
       SubnetId: !Ref PrivateSubnet1
@@ -1128,7 +1191,7 @@ Resources:
         - !Ref VpcSecurityGroup
   MountTarget2:
     Type: 'AWS::EFS::MountTarget'
-    DependsOn: [ PrivateSubnet2RouteAssociation, VpcSecurityGroupIngress ]
+    DependsOn: [ PrivateSubnet2RouteAssociation, VpcSecurityGroupIngressEfs ]
     Properties:
       FileSystemId: !Ref EFSFileSystem 
       SubnetId: !Ref PrivateSubnet2
@@ -1136,7 +1199,7 @@ Resources:
         - !Ref VpcSecurityGroup
   MountTarget3:
     Type: 'AWS::EFS::MountTarget'
-    DependsOn: [ PrivateSubnet3RouteAssociation, VpcSecurityGroupIngress ]
+    DependsOn: [ PrivateSubnet3RouteAssociation, VpcSecurityGroupIngressEfs ]
     Properties:
       FileSystemId: !Ref EFSFileSystem 
       SubnetId: !Ref PrivateSubnet3
@@ -1593,7 +1656,7 @@ Resources:
       Type: MANAGED
       State: ENABLED
       ComputeResources:
-        Type: "FARGATE_SPOT"
+        Type: !Ref FargateComputeType
         MaxvCpus: !Ref FargateComputeMax
         Subnets: 
           - !Ref BatchFargatePrivateSubnet
@@ -1895,9 +1958,8 @@ Resources:
               NVIDIA_DRIVER=$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')
               if [[ $NVIDIA_DRIVER != "" && ! -x "$(command -v nvidia-smi)" ]]
               then
-                echo "Auto install NVIDIA GPU drivers"
-                ubuntu-drivers autoinstall
-                reboot
+                echo "Install NVIDIA GPU driver"
+                apt install -y  $NVIDIA_DRIVER && reboot
               fi
 
               apt install -y git tar
