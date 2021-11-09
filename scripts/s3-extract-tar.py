@@ -64,7 +64,6 @@ class S3TarExtractor(Process):
         self.config = config
         self.__pindex = index
         self.__pcount = count
-        self.s3_client = boto3.client('s3') 
 
     def run(self):
         file_path = self.config['file_path']
@@ -92,15 +91,18 @@ class S3TarExtractor(Process):
         dest_bucket = self.config["dest_bucket"]
         dest_prefix = self.config["dest_prefix"]
 
+        s3_client = boto3.client('s3') 
         self.logger.info(f"worker {self.__pindex}, start: {start+p_start}, end: {start+p_end}, count: {file_count}")
         for file_info in file_info_list:
             nattempt = 0
             while nattempt < self.PUT_RETRY:
                 try:
                     file_reader = tar_file.extractfile(file_info)
-                    self.s3_client.put_object(Body=file_reader, 
+                    file_key = self.__dest_key(dest_prefix, file_info.name)
+                    
+                    s3_client.put_object(Body=file_reader, 
                                 Bucket=dest_bucket, 
-                                Key = self.__dest_key(dest_prefix, file_info.name))
+                                Key = file_key)
                     file_reader.close()
                     files_extracted += 1
                     break
@@ -141,7 +143,7 @@ class S3TarExtractor(Process):
                 jobName=f'extract-{start}-{end}-{job_ts}',
                 jobQueue=config['job_queue'],
                 jobDefinition=config['job_definition'],
-                retryStrategy={'attempts': 1},
+                retryStrategy={'attempts': 2},
                 containerOverrides={
                     'command': ['--file-path', f'{file_path}', '--start', f'{start}', '--end', f'{end}'],
                     'environment': [
@@ -195,8 +197,58 @@ class S3TarExtractor(Process):
                 
         return f'{dest_prefix}/{dest_key}'
 
+    
     @classmethod
-    def __download_file(cls, bucket_name=None, key=None, dir=None):
+    def __is_tar_extracted(cls, s3_client=None, bucket_name=None, key=None, mdir=None, dest_bucket=None):
+        file_name = key if key.find('/') == -1 else key.rsplit('/', 1)[1]
+        file_path = os.path.join(mdir, file_name)
+
+        mkey = f"manifests/{key}"
+        with open(file_path, 'wb') as data:
+            start_time = time.time()
+            cls.logger.info(f"Download mainfest, if exists: s3://{bucket_name}/{mkey} ")
+            config = TransferConfig()
+
+            try:
+                s3_client.download_fileobj(dest_bucket, mkey, data, Config=config)
+            except Exception as e:
+                cls.logger.info(f"No mainfest found: s3://{bucket_name}/{mkey} ")
+                return None
+            finally:
+                data.close()
+
+            elapsed = time.time() - start_time
+            file_size = os.stat(file_path).st_size
+            cls.logger.info(f"Manifest downloaded: {file_path}: {file_size} bytes in {elapsed} secs")
+            return cls.__verify_manifest(s3_client=s3_client, manifest_path=file_path, dest_bucket=dest_bucket)
+        
+
+    @classmethod
+    def __verify_manifest(cls, s3_client=None, manifest_path=None, dest_bucket=None):
+        verified = True
+
+        with open(manifest_path, 'r') as manifest:
+            try:
+                for line in manifest:
+                    entry = line.split(' ', 1)
+                    key = entry[0]
+                    expected_size = int(entry[1])
+                    actual_size = s3_client.head_object(Bucket=dest_bucket, Key=key).get('ContentLength')
+                    if(expected_size != actual_size):
+                        cls.logger.info(f"Manifest mismatch: s3://{dest_bucket}/{key}, expected: {expected_size}, actual:{actual_size}")
+                        verified = False
+                        break
+            except Exception as e:
+                verified = False
+                cls.logger.warning(f"Verify manifest error: {e}")
+
+    
+            manifest.close()
+
+        return verified
+
+    @classmethod
+    def __download_file(cls, bucket_name=None, key=None, dir=None, mdir=None, dest_bucket=None):
         file_name = key if key.find('/') == -1 else key.rsplit('/', 1)[1]
         file_path = os.path.join(dir, file_name)
 
@@ -205,20 +257,29 @@ class S3TarExtractor(Process):
             cls.logger.info(f"Skipping download: s3://{bucket_name}/{key}, file exists: {file_path}, size:{file_size}")
         else:
             s3_client = boto3.client('s3')
+            if cls.__is_tar_extracted(s3_client=s3_client, bucket_name=bucket_name, key=key, mdir=mdir, dest_bucket=dest_bucket):
+                return None
             
             with open(file_path, 'wb') as data:
-                start_time = time.time()*1000
+                start_time = time.time()
+                
                 tar_size = s3_client.head_object(Bucket=bucket_name, Key=key).get('ContentLength')
                 cls.logger.info(f"Begin download: s3://{bucket_name}/{key} : {tar_size} bytes")
                 config = TransferConfig(multipart_threshold=cls.GB, 
                     multipart_chunksize=cls.GB,
                     max_io_queue=cls.S3_MAX_IO_QUEUE, 
                     io_chunksize=cls.S3_IO_CHUNKSIZE)
-                s3_client.download_fileobj(bucket_name, key, data, Config=config, Callback=DownloadProgress(tar_size))
-                data.close()
-                elapsed = time.time()*1000 - start_time
+                try:
+                    s3_client.download_fileobj(bucket_name, key, data, Config=config, Callback=DownloadProgress(tar_size))
+                except Exception as e:
+                    cls.logger.error(f"File download error: {e} ")
+                    sys.exit(1)
+                finally:
+                    data.close()
+                
+                elapsed = time.time() - start_time
                 file_size = os.stat(file_path).st_size
-                cls.logger.info(f"Download completed: {file_path}: {file_size} bytes in {elapsed} ms")
+                cls.logger.info(f"Download completed: {file_path}: {file_size} bytes in {elapsed} secs")
 
         return file_path
 
@@ -227,19 +288,30 @@ class S3TarExtractor(Process):
     def extract_tar(cls, config=None):
 
         key = config['key']
+        manifest_path = None
         if key:
             tmp_dir = config["tmp_dir"]
             os.makedirs(tmp_dir, mode=0o777, exist_ok=True)
+
+            mdir = os.path.join(tmp_dir, "manifests")
+            os.makedirs(mdir, mode=0o777, exist_ok=True)
     
             source_bucket = config["source_bucket"]
-            config['file_path'] = cls.__download_file(bucket_name=source_bucket, key=key, dir=tmp_dir)
+            dest_bucket = config["dest_bucket"]
+        
+            dest_prefix = config["dest_prefix"]
+            manifest_name = key if key.find('/') == -1 else key.rsplit('/', 1)[1]
+            manifest_path = os.path.join(mdir, manifest_name)
 
+            config['file_path'] = cls.__download_file(bucket_name=source_bucket, key=key, 
+                dir=tmp_dir, mdir=mdir, dest_bucket=dest_bucket)
+        
         file_path = config['file_path']
         if not file_path:
-            cls.logger.info("config['file_path'] is required")
-            sys.exit(1)
+            cls.logger.info("No file to be extracted")
+            sys.exit(0)
 
-        start_time = time.time()*1000
+        start_time = time.time()
 
         start = config['start']
         end = config['end']
@@ -252,6 +324,14 @@ class S3TarExtractor(Process):
             info_list = tar_file.getmembers()
             file_info_list = [ info for info in info_list if  info.isfile()]
             total_file_count = len(file_info_list)
+
+            with open(manifest_path, "w") as manifest:
+                for file_info in file_info_list:
+                    file_key = cls.__dest_key(dest_prefix, file_info.name)
+                    file_size = file_info.size
+                    manifest.write(f"{file_key} {file_size}\n")
+
+                manifest.close()
 
         if total_file_count > cls.FILE_CHUNK_COUNT:
             cls.logger.info(f"submit batch jobs for {file_path} : {total_file_count}")
@@ -266,11 +346,15 @@ class S3TarExtractor(Process):
             for _p in _p_list:
                 _p.join()
     
-        elapsed = time.time()*1000 - start_time
+        elapsed = time.time() - start_time
     
         if not start and not end:
+            manifest_key = f"manifests/{key}"
+            s3_client = boto3.client('s3')
+            s3_client.upload_file(manifest_path, dest_bucket, manifest_key)
+            os.remove(manifest_path)
             os.remove(file_path)
-            cls.logger.info(f"Total time: {elapsed} ms")    
+            cls.logger.info(f"Extraction completed: {elapsed} secs")    
 
 import argparse
 
