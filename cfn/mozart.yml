@@ -172,8 +172,8 @@ Parameters:
   
   UbuntuAMI:
     Description: >-
-      Advanced option to override Ubuntu AMI ((18.04, or 20.04). 
-      ROS  'melodic' requires 18.04, and noetic requires 20.04.
+      Advanced option to override Ubuntu AMI with version 18.04, or 20.04. 
+      ROS  'melodic' requires 18.04, and 'noetic' requires 20.04.
     Type: String
     AllowedPattern: '(ami-[0-9a-z]{17})?'
 
@@ -256,46 +256,46 @@ Conditions:
 Mappings:
   melodic:
     us-east-1:
-      AMI: ami-03d8a161615ac7d55
+      AMI: ami-052474ad05a707726
     us-east-2:
-      AMI: ami-0d0d2a9fd219d2622 
+      AMI: ami-0766d84b731e45cb6 
     us-west-2:
-      AMI: ami-072b79acdd5205940 
+      AMI: ami-07e00b8a1a054fdbf 
     eu-west-1:
-      AMI: ami-0fa09d3c24762fe09 
+      AMI: ami-02174249e65e06bea 
     eu-central-1:
-      AMI: ami-0e2a78dd4da2513fd 
+      AMI: ami-0d4f8a81cb29d4e3f 
     ap-southeast-1:
-      AMI: ami-004477fff324e5301 
+      AMI: ami-06c1196e3aefdb899 
     ap-southeast-2:
-      AMI: ami-0e1e19b68e46dbe21 
+      AMI: ami-0ff9d71ef519ffd29 
     ap-south-1:
-      AMI: ami-0133460e8c70238ac 
+      AMI: ami-0f326447840c78c9a 
     ap-northeast-1:
-      AMI: ami-04de157b8eebcb16d 
+      AMI: ami-075558eae9ec402e1 
     ap-northeast-2:
-      AMI: ami-03de23f1474726612
+      AMI: ami-07fdae2b415bf7289
   noetic:
     us-east-1:
-      AMI: ami-0ed28656d62ce20d6
+      AMI: ami-0ae1f7f35ab8e62d5
     us-east-2:
-      AMI: ami-099fb390d2aabb6ca 
+      AMI: ami-03f303841bd6a29a1 
     us-west-2:
-      AMI: ami-063b8d05214908f17 
+      AMI: ami-0f3c35b05efbfddc5
     eu-west-1:
-      AMI: ami-0c4f28e9b2175e21e 
+      AMI: ami-0cfe5ef9b434761cc 
     eu-central-1:
-      AMI: ami-0aca1f72de611d1ba 
+      AMI: ami-06dfd20486641ec12 
     ap-southeast-1:
-      AMI: ami-02a7bcf4bae8400e2 
+      AMI: ami-034dd6aa5e93cb979 
     ap-southeast-2:
-      AMI: ami-0c257005b1b91773a 
+      AMI: ami-01e8441fe5daa337a 
     ap-south-1:
-      AMI: ami-013579e334aa8107c 
+      AMI: ami-028da443e134b96f1 
     ap-northeast-1:
-      AMI: ami-0813873264a43a438 
+      AMI: ami-0bd4b16045f558294
     ap-northeast-2:
-      AMI: ami-04ec56d6e751de72b
+      AMI: ami-0a9a69718358da747
 
 Resources:
   Vpc:
@@ -1919,8 +1919,8 @@ Resources:
 
               if [[ -f "/etc/systemd/system/dcvsession.service" ]]
               then
-                apt install -y lustre-client-modules-$(uname -r)
-                /usr/local/bin/mount-efs-fsx.sh
+                /usr/local/bin/mount-efs.sh
+                apt install -y lustre-client-modules-$(uname -r) && /usr/local/bin/mount-fsx.sh
                 exit 0
               fi
 
@@ -1933,6 +1933,12 @@ Resources:
               # setup graphics desktop
               export DEBIAN_FRONTEND=noninteractive
               export DEBCONF_NONINTERACTIVE_SEEN=true
+
+              # check if we have a GPU and if Nvidia drivers need to be installed
+              [[ ! -x "$(command -v nvidia-smi)" ]] && apt update && apt -y upgrade && \
+                apt -y install ubuntu-drivers-common && \
+                [[ ! -z "$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')" ]] && \
+                ubuntu-drivers autoinstall && reboot
 
               # setup software repo for docker
               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
@@ -1952,15 +1958,6 @@ Resources:
 
               # update and install required packages
               apt update
-
-              # check if we need NVIDIA drivers and if they are installed
-              apt -y install ubuntu-drivers-common
-              NVIDIA_DRIVER=$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')
-              if [[ $NVIDIA_DRIVER != "" && ! -x "$(command -v nvidia-smi)" ]]
-              then
-                echo "Install NVIDIA GPU driver"
-                apt install -y  $NVIDIA_DRIVER && reboot
-              fi
 
               apt install -y git tar
               apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
@@ -2197,17 +2194,9 @@ Resources:
               echo "export cluster_autoscaler_image_tag=v${KubernetesVersion}.0" >> /home/ubuntu/.bashrc
               echo "export eks_cluster_autoscaler_role_arn=${EksClusterAutoscalerServiceAccountRole.Arn}" >> /home/ubuntu/.bashrc
               
-              # Create EFS and FSX mount script 
-              cat >/usr/local/bin/mount-efs-fsx.sh <<EOL
+              # Create FSX mount script 
+              cat >/usr/local/bin/mount-fsx.sh <<EOL
               #!/bin/bash
-
-              if [[ ! -d /efs ]]
-              then
-                mkdir /efs
-              fi
-              
-              # Mount EFS
-              mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${EFSFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /efs
 
               if [[ ! -d /fsx ]]
               then
@@ -2218,7 +2207,23 @@ Resources:
               mount -t lustre -o noatime,flock ${FSxFileSystem}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxFileSystem.LustreMountName} /fsx
               EOL
 
-              chmod u+x /usr/local/bin/mount-efs-fsx.sh
+              chmod u+x /usr/local/bin/mount-fsx.sh
+
+              # Create EFS mount script 
+              cat >/usr/local/bin/mount-efs.sh <<EOL
+              #!/bin/bash
+
+              if [[ ! -d /efs ]]
+              then
+                mkdir /efs
+              fi
+              
+              # Mount EFS
+              mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${EFSFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /efs
+
+              EOL
+
+              chmod u+x /usr/local/bin/mount-efs.sh
 
               # Create config file
               mkdir /home/ubuntu/.aws
