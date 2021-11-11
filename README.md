@@ -62,7 +62,7 @@ To get started:
 * Subscribe to [Ubuntu Pro 18.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-1804-LTS/B0821T9RL2) and [Ubuntu Pro 20.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-2004-LTS/B087L1R4G4).
 * If you do not already have an Amazon EC2 key pair, [create a new Amazon EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#prepare-key-pair). You will need the key pair name to specify the ```KeyName``` parameter when creating the AWS CloudFormation stack below. 
 * You will need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the AWS region of your choice. You will use the S3 bucket name to specify the ```S3Bucket``` parameter in the stack. 
-* Run ```curl ifconfig.co``` on your laptop and note your public IP address. This will be the IP address you will need to specify ```DesktopAccessCIDR``` parameter in the stack.
+* Run ```curl ifconfig.co``` on your laptop and note your public IP address. This will be the IP address you will need to specify ```DesktopRemoteAccessCIDR``` parameter in the stack.
 
 ### Configure the data service
 
@@ -76,7 +76,7 @@ Create a new AWS CloudFormation stack using the ```cfn/mozart.yml``` template. T
 | --- | ----------- |
 | KeyPairName | This is a *required* parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
 | RedshiftMasterUserPassword | This is a *required* parameter whereby you specify the Redshift database master user password.|
-| RemoteAccessCIDR | This is a *required* parameter whereby you specify the public IP CIDR range from where you need remote access to your graphics desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
+| DesktopRemoteAccessCIDR | This is a *required* parameter whereby you specify the public IP CIDR range from where you need remote access to your graphics desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
 | S3Bucket | This is a *required* parameter whereby you specify the name of the Amazon S3 bucket to store your data. **The S3 bucket must already exist.** |
 
 For all other stack input parameters, default values are recommended during first walkthrough. See complete list of all the [template input parameters](#InputParams) below. 
@@ -97,7 +97,7 @@ Now you are ready to proceed with the following steps. For all the commands in t
 
 #### Configure EKS cluster access
 
-In this step, you need the [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys) for the IAM user or role you used to create the AWS CloudFormation stack above. The AWS credentials are used *one-time* to enable EKS cluster access from the graphics desktop, and are removed at the end of this step. In the *working directory*, run the command:
+In this step, you need [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys) for programmatic access (Access Key and Secret Key) for the IAM user you used to create the AWS CloudFormation stack above: You must not use the AWS credentials of a different IAM user.  The AWS credentials are used *one-time* to enable EKS cluster access from the graphics desktop, and are removed at the end of this step. In the *working directory*, run the command:
 
 		./scripts/configure-eks-auth.sh
 
@@ -233,6 +233,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | EKSNodeGroupMinSize | This is a **required** parameter whereby you specify EKS Node group minimum size. Default value is 1 node.|
 | EKSNodeGroupMaxSize | This is a **required** parameter whereby you specify EKS Node group maximum size. Default value is 8 nodes.|
 | EKSNodeGroupDesiredSize | This is a **required** parameter whereby you specify EKS Node group initial desired size. Default value is 2 nodes.|
+| FargateComputeType | This is a **required** parameter whereby you specify Fargate compute environment type. Allowed values are ```FARGATE_SPOT``` and ```FARGATE```. Default value is ```FARGATE_SPOT```. |
 | FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of 3600 GiB. Default value is 7200 GiB.|
 | FSxS3ImportPrefix | This is an *optional* advanced parameter whereby you specify FSx S3 bucket path prefix for importing data from S3 bucket. Leave blank to import the complete bucket.|
 | KeyPairName | This is a **required** parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
