@@ -101,8 +101,7 @@ In this step, you need the [AWS credentials](https://docs.aws.amazon.com/general
 
 		./scripts/configure-eks-auth.sh
 
-When you run the above script for the first time, you see the message ```error: the server doesn't have a resource type "svc"```. This message arises from a check to see if ```kubectl``` is already configured, and you can safely ignore the message. At the end of this command output, you should see ```AWS Credentials Removed```. 
-
+At the end of this command output, you should see ```AWS Credentials Removed```. 
 
 #### Setup EKS cluster environment
 

@@ -16,7 +16,7 @@
 
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-kubectl get svc && echo "kubectl is already configured" && exit 0
+kubectl get svc > /dev/null 2>&1 && echo "kubectl is already configured" && exit 0
 
 # set aws region
 aws_region=$(aws configure get region)
