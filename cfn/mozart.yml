@@ -1162,6 +1162,7 @@ Resources:
         ImportPath: !Sub 's3://${S3Bucket}/${FSxS3ImportPrefix}'
         DeploymentType: SCRATCH_2
         ImportedFileChunkSize: 512000
+        AutoImportPolicy: "NEW_CHANGED"
       SecurityGroupIds: 
         - !GetAtt VpcSecurityGroup.GroupId
       StorageCapacity: !Ref FSxStorageCapacityGiB
