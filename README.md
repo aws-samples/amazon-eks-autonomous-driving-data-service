@@ -97,7 +97,11 @@ Now you are ready to proceed with the following steps. For all the commands in t
 
 #### Configure EKS cluster access
 
-In this step, you need [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys) for programmatic access (Access Key and Secret Key) for the IAM user you used to create the AWS CloudFormation stack above: You must not use the AWS credentials of a different IAM user.  The AWS credentials are used *one-time* to enable EKS cluster access from the graphics desktop, and are removed at the end of this step. In the *working directory*, run the command:
+In this step, you need [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html) for *programmatic* access for the IAM user, or role, you used to create the AWS CloudFormation stack above. You must not use the AWS credentials for a different IAM user, or role. The AWS credentials are used one-time to enable EKS cluster access from the ROS desktop, and are *automatically* *removed* at the end of this step. 
+
+If you used an IAM role to create the stack above, [configure the credentials](https://docs.aws.amazon.com/sdk-for-php/v3/developer-guide/guide_credentials_profiles.html) associated with the role in the ```~/.aws/credentials``` file. If you used an IAM user to create the stack, you do not need to manually configure the credentials as you will be promoted for the credentials below.
+
+In the *working directory*, run the command:
 
 		./scripts/configure-eks-auth.sh
 
