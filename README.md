@@ -16,7 +16,7 @@ An [Amazon Managed Service For Apache Kafka](https://aws.amazon.com/msk/) (MSK) 
 ### Data client request
 Concretely, imagine the data client wants to request drive scene  data in ```rosbag``` file format from [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) for vehicle id ```a2d2```, drive scene id ```20190401145936```, starting at timestamp ```1554121593909500``` (microseconds) , and stopping at timestamp ```1554122334971448``` (microseconds). The data client wants the response to include data **only** from the ```front-left camera``` in ```sensor_msgs/Image``` [ROS](https://www.ros.org/) data type, and the ```front-left lidar``` in ```sensor_msgs/PointCloud2``` ROS data type. The data client wants the response data to be *streamed* back chunked in series of ```rosbag``` files, each file spanning ```1000000``` microseconds of the drive scene. Finally, the data client wants the response ```rosbag``` files to be stored on a shared Amazon FSx file system. 
 
-The data client can encode such a data request using the JSON object shown below, and send it to the (imaginary) Kafka cluster endpoint ```b-1.msk-cluster-1:9092,b-2.msk-cluster-1:9092``` on the Apache Kafka topic named ```a2d2```:
+The data client can encode such a data request using the JSON object shown below, and send it to the [Kafka bootstrap servers](https://docs.aws.amazon.com/msk/latest/developerguide/msk-get-bootstrap-brokers.html)  ```b-1.msk-cluster-1:9092,b-2.msk-cluster-1:9092``` on the Apache Kafka topic named ```a2d2```:
 
 ```
 {
@@ -61,8 +61,9 @@ To get started:
 * Select your [AWS Region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html). The AWS Regions supported by this project include, us-east-1, us-east-2, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2, and ap-south-1. Note that not all Amazon EC2 instance types are available in all [AWS Availability Zones](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html) in an AWS Region.
 * Subscribe to [Ubuntu Pro 18.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-1804-LTS/B0821T9RL2) and [Ubuntu Pro 20.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-2004-LTS/B087L1R4G4).
 * If you do not already have an Amazon EC2 key pair, [create a new Amazon EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#prepare-key-pair). You will need the key pair name to specify the ```KeyName``` parameter when creating the AWS CloudFormation stack below. 
-* You will need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the AWS region of your choice. You will use the S3 bucket name to specify the ```S3Bucket``` parameter in the stack. 
-* Run ```curl ifconfig.co``` on your laptop and note your public IP address. This will be the IP address you will need to specify ```DesktopRemoteAccessCIDR``` parameter in the stack.
+* You will need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the selected AWS region. You will use the S3 bucket name to specify the ```S3Bucket``` parameter in the stack. The bucket is used to store the [A2D2](https://www.a2d2.audi/a2d2/en.html) data.
+* Use the [public internet address](http://checkip.amazonaws.com/) of your laptop as the base value for the [CIDR](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html) to specify ```DesktopRemoteAccessCIDR``` parameter in the CloudFormation stack you will create below.  
+* For all passwords used in this tutorial, we recommend using *strong* passwords using the best-practices recommended for [AWS root account user password](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_change-root.html).
 
 ### Configure the data service
 
