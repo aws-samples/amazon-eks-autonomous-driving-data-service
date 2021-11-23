@@ -1022,10 +1022,11 @@ Resources:
                   - "s3:ListBucket"
                 Resource: '*'
               - Effect: Allow
-                Action: 
+                Action:
                   - "fsx:CreateFileSystem"
                   - "fsx:DeleteFileSystem"
                   - "fsx:DescribeFileSystems"
+                  - "fsx:TagResource"
                 Resource:  "*"
           PolicyName: 'EKSNodeFSxCNIPolicy'
       ManagedPolicyArns:
@@ -1571,14 +1572,6 @@ Resources:
                   - "batch:DescribeJobs"
                 Resource:
                   - "*"
-        - PolicyName: steps-lambda-policy
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "lambda:InvokeFunction"
-                Resource:
-                  - "*"
   BatchJobRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -1717,7 +1710,6 @@ Resources:
             Principal:
               Service: 
                 - ec2.amazonaws.com
-                - sagemaker.amazonaws.com
             Action: 
               - "sts:AssumeRole"
       ManagedPolicyArns:
@@ -1769,22 +1761,7 @@ Resources:
                   - "batch:DescribeJobs"
                 Resource:
                   - "*"
-        - PolicyName: desktop-glue-policy
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "glue:CreateJob"
-                  - "glue:StartJobRun"
-                  - "glue:GetJob*"
-                Resource:
-                  - "*"
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource:
-                  - !GetAtt GlueJobRole.Arn
-        
+
         - PolicyName: desktop-sfn-policy
           PolicyDocument:
             Statement:
