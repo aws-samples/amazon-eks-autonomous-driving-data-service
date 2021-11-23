@@ -140,10 +140,6 @@ To verify that the ```a2d2-data-service``` deployment is running, execute the co
 
 		kubectl get pods -n a2d2
 		
-You can **stop** the data service by executing:
-
-		helm delete a2d2-data-service
-
 #### Raw data input data source, and response data staging
 
 The data service can be configured to input raw data from S3, FSx (see [Preload A2D2 data from S3 to FSx](#PreloadFSx) ), or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ).  Similarly, the data client can specify the ```accept``` field in the ```request``` to request that the response data be staged on S3, FSx, or EFS. The raw data input source is fixed when the data service is deployed. However, the response data staging option is specified in the data client request, and is therefore dynamic. 
@@ -175,12 +171,21 @@ After a brief delay, you should be able to preview the response data in the ```r
 
 
 You can set ```"preview": false``` in the data client config file, and run the above command to view the complete response, but before you do that, we recommend that for best performance, [preload A2D2 data from S3 to FSx](#PreloadFSx).
-			
-### Killing data service client
 
-Killing the data client does not stop the data service from producing and sending the ```rosbag``` files to the client, as the data information is being sent asynchronously. If the data client is killed by the user, the data service will continue to stage the response data, and the data will remain stored on the response data staging option specified in the data client request.
+Do not run multiple data client instances on the ROS desktop concurrently. 
 
-If you kill the data service client before it exits normally, be sure to clean up all the processes spawned by the data client. 
+### Hard reset of the data service
+
+This step is for reference purposes. If at any time you need to do a hard reset of the data service, you can do so by executing:
+
+		helm delete a2d2-data-service
+
+This will delete all data service EKS pods immediately. All in-flight service responses will be aborted. Because the connection between the data client and data service is asynchronous, the data clients may wait indefinitely, and you may need to cleanup the data client processes manually on the ROS desktop using operating system tools. Note, each data client instance spawns multiple Python processes. 
+
+## Deleting the AWS CloudFormation stack
+
+When you no longer need the data service , you may delete the AWS CloudFormation stack from the AWS CloudFormation console. Deleting the stack will terminate the desktop instance, and delete the EFS and FSx for Lustre file-systems created in the stack. The Amazon S3 bucket is not deleted.
+
 
 
 ## <a name="Reference"></a> Reference
