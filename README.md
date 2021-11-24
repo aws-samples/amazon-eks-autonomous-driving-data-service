@@ -82,6 +82,16 @@ Create a new AWS CloudFormation stack using the ```cfn/mozart.yml``` template. T
 
 For all other stack input parameters, default values are recommended during first walkthrough. See complete list of all the [template input parameters](#InputParams) below. 
 
+#### Key AWS resources
+
+The key resources in the CloudFormation stack are listed below:
+
+* A ROS desktop EC2 instance (default type ```g3s.xlarge```)
+* An Amazon EKS cluster with 2 [managed node group](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html) nodes (default type ```r5n.8xlarge```)
+* An Amazon [MSK](https://aws.amazon.com/msk/) cluster with 3 broker nodes (default type ```kafka.m5.2xlarge```)
+* An Amazon [Redshift](https://aws.amazon.com/redshift/) cluster with 3 nodes (default type ```ra3.4xlarge```)
+* An Amazon [Fsx for Lustre](https://aws.amazon.com/fsx/lustre/) file-system (default size 7,200  GiB)
+* An Amazon [EFS](https://aws.amazon.com/efs/) file-system
 
 #### Connect to the graphics desktop using SSH
 
