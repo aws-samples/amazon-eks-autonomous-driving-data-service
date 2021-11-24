@@ -108,9 +108,9 @@ Parameters:
     MinValue: 3
 
   FSxStorageCapacityGiB:
-    Description: FSx Storage capacity in multiples of 3600 GiB
+    Description: FSx Storage capacity in multiples of 2400 GiB
     Type: Number
-    MinValue: 3600
+    MinValue: 2400
     Default: 7200
 
   FSxS3ImportPrefix:
