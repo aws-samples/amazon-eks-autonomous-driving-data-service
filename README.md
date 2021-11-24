@@ -188,7 +188,7 @@ After a brief delay, you should be able to preview the response data in the ```r
 
 You can set ```"preview": false``` in the data client config file, and run the above command to view the complete response, but before you do that, we recommend that for best performance, [preload A2D2 data from S3 to FSx](#PreloadFSx).
 
-Do not run multiple data client instances on the ROS desktop concurrently. 
+It is important that you do not run multiple data client instances on the ROS desktop concurrently. This is because the response data is played back on ROS topics, and there is only one ROS server running on the ROS desktop. Wait for a data client instance to exit, before you start another instance. Aborting the data client manually does not stop the data service pod from producing the response.
 
 ### Hard reset of the data service
 
