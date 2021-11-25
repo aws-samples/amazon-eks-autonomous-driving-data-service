@@ -300,19 +300,22 @@ class RosbagProducer(Process):
                 req.put(bucket+" "+key)
 
             for f in files:
-                path = resp.get(block=True).split(" ", 1)[0]
-                image_data = cv2.imread(path)
-                _image = RosbagProducer.undistort_image(image_data, lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data
-                image_ts = int(f[2])
-                ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
-                _stamp = divmod(image_ts, 1000000 ) #stamp in micro secs
-                ros_image_msg.header.stamp.secs = _stamp[0] # secs
-                ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
-                self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp, s3_client=s3_client)
-                os.remove(path)
-                if self.bag_lock:
-                    factor = len(self.topic_dict[ros_topic]) + 1
-                    time.sleep(.000001*factor)
+                try:
+                    path = resp.get(block=True).split(" ", 1)[0]
+                    image_data = cv2.imread(path)
+                    _image = RosbagProducer.undistort_image(image_data, lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data
+                    image_ts = int(f[2])
+                    ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
+                    _stamp = divmod(image_ts, 1000000 ) #stamp in micro secs
+                    ros_image_msg.header.stamp.secs = _stamp[0] # secs
+                    ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
+                    self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp, s3_client=s3_client)
+                    os.remove(path)
+                    if self.bag_lock:
+                        factor = len(self.topic_dict[ros_topic]) + 1
+                        time.sleep(.000001*factor)
+                except BaseException as e:
+                    self.logger.error("bag image error: " + str(e))
 
             if self.request['preview']:
                 break
@@ -371,15 +374,18 @@ class RosbagProducer(Process):
         
             for i in range(0, count):
                 image_reader[i].join()
-                _image = RosbagProducer.undistort_image(image_data[i], lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data[i]
-                ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
-                _stamp = divmod(image_ts[i], 1000000 ) #stamp in micro secs
-                ros_image_msg.header.stamp.secs = _stamp[0] # secs
-                ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
-                self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp)
-                if self.bag_lock:
-                    factor = len(self.topic_dict[ros_topic]) + 1
-                    time.sleep(.000001*factor)
+                try:
+                    _image = RosbagProducer.undistort_image(image_data[i], lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data[i]
+                    ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
+                    _stamp = divmod(image_ts[i], 1000000 ) #stamp in micro secs
+                    ros_image_msg.header.stamp.secs = _stamp[0] # secs
+                    ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
+                    self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp)
+                    if self.bag_lock:
+                        factor = len(self.topic_dict[ros_topic]) + 1
+                        time.sleep(.000001*factor)
+                except BaseException as e:
+                    self.logger.error("bag image error: " + str(e))
 
             if self.request['preview']:
                 break
@@ -412,24 +418,27 @@ class RosbagProducer(Process):
                 req.put(bucket+" "+key)
 
             for f in files:
-                path = resp.get(block=True).split(" ", 1)[0]
-                npz = np.load(path)
-                pcl_ts= int(f[2])
-                _reflectance = npz["pcloud_attr.reflectance"]
-                if _lidar_view == "vehicle":
-                    points_trans = RosbagProducer.project_lidar_from_to(points=npz["pcloud_points"], trans=vehicle_transform_matrix)
-                    _points = points_trans[:,0:3]
-                    if np.isnan(_points).any():
-                        self.logger.info("Transformed lidar points contain NaN; skipping")
-                        continue
-                else:
-                    _points = npz["pcloud_points"]
-                ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts,frame_id="map")
-                self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp, s3_client=s3_client)
-                os.remove(path)
-                if self.bag_lock:
-                    factor = len(self.topic_dict[ros_topic]) + 1
-                    time.sleep(.000001*factor)
+                try:
+                    path = resp.get(block=True).split(" ", 1)[0]
+                    npz = np.load(path)
+                    pcl_ts= int(f[2])
+                    _reflectance = npz["pcloud_attr.reflectance"]
+                    if _lidar_view == "vehicle":
+                        points_trans = RosbagProducer.project_lidar_from_to(points=npz["pcloud_points"], trans=vehicle_transform_matrix)
+                        _points = points_trans[:,0:3]
+                        if np.isnan(_points).any():
+                            self.logger.info("Transformed lidar points contain NaN; skipping")
+                            continue
+                    else:
+                        _points = npz["pcloud_points"]
+                    ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts,frame_id="map")
+                    self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp, s3_client=s3_client)
+                    os.remove(path)
+                    if self.bag_lock:
+                        factor = len(self.topic_dict[ros_topic]) + 1
+                        time.sleep(.000001*factor)
+                except BaseException as e:
+                    self.logger.error("bag point-cloud error: " + str(e))
 
             if self.request['preview']:
                 break
@@ -484,20 +493,23 @@ class RosbagProducer(Process):
             count = idx
             for i in range(0, count):
                 pcl_reader[i].join()
-                _reflectance = npz[i]["pcloud_attr.reflectance"]
-                if _lidar_view == "vehicle":
-                    points_trans = RosbagProducer.project_lidar_from_to(points=npz[i]["pcloud_points"], trans=vehicle_transform_matrix)
-                    _points = points_trans[:,0:3]
-                    if np.isnan(_points).any():
-                        self.logger.info("Transformed lidar points contain NaN; skipping")
-                        continue
-                else:
-                    _points = npz[i]["pcloud_points"]
-                ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts[i],frame_id="map")
-                self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp)
-                if self.bag_lock:
-                    factor = len(self.topic_dict[ros_topic]) + 1
-                    time.sleep(.000001*factor)
+                try:
+                    _reflectance = npz[i]["pcloud_attr.reflectance"]
+                    if _lidar_view == "vehicle":
+                        points_trans = RosbagProducer.project_lidar_from_to(points=npz[i]["pcloud_points"], trans=vehicle_transform_matrix)
+                        _points = points_trans[:,0:3]
+                        if np.isnan(_points).any():
+                            self.logger.info("Transformed lidar points contain NaN; skipping")
+                            continue
+                    else:
+                        _points = npz[i]["pcloud_points"]
+                    ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts[i],frame_id="map")
+                    self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp)
+                    if self.bag_lock:
+                        factor = len(self.topic_dict[ros_topic]) + 1
+                        time.sleep(.000001*factor)
+                except BaseException as e:
+                    self.logger.error("bag point-cloud error: " + str(e))
 
             if self.request['preview']:
                 break
