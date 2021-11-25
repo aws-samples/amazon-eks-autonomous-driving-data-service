@@ -47,7 +47,8 @@ class DataService(threading.Thread):
             client_id = random_string()
             consumer = KafkaConsumer(topic, 
                         bootstrap_servers=self.config["servers"],
-                        client_id=client_id)
+                        client_id=client_id,
+                        group_id="a2d2-data-service")
 
             self.logger.info("running data service: {0}:{1}".format(client_id, topic))
 
