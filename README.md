@@ -142,7 +142,9 @@ Note the ```executionArn``` of the state machine execution in the output of the 
 
 	aws stepfunctions describe-execution --execution-arn executionArn
 
-The state machine execution time varies, and may take approximately 8 - 12 hours. 
+You can see the status of the Step Function State Machine execution in the Step Functions console, as well. 
+
+The state machine execution time varies, and may take anywhere from 4 - 12 hours. In rare cases, it can take longer than 24 hours.  You can see the status and the CloudWatch logs for each AWS Batch job spawned by the Step Function State Machine execution in the Batch console. If a Batch job fails, it is automatically retried.
 
 ### Run the data service
 
