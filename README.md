@@ -312,9 +312,3 @@ To check if the step is complete, execute:
 	kubectl get pods stage-efs-a2d2 -n a2d2
 
 If the pod is still ```Running```, the step has not yet completed. This step takes approximately 6.5 hours to complete.
-
-
-
-
-
-request
