@@ -58,7 +58,7 @@ This tutorial assumes you have an [AWS Account](https://aws.amazon.com/account/)
 
 To get started:
 
-* Select your [AWS Region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html). The AWS Regions supported by this project include, us-east-1, us-east-2, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2, and ap-south-1. Note that not all Amazon EC2 instance types are available in all [AWS Availability Zones](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html) in an AWS Region.
+* Select your [AWS Region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html). The AWS Regions supported by this project include, us-east-1, us-east-2, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2, and ap-south-1. The [A2D2](https://registry.opendata.aws/aev-a2d2/) dataset used in this tutorial is stored in  ```eu-central-1```.
 * Subscribe to [Ubuntu Pro 18.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-1804-LTS/B0821T9RL2) and [Ubuntu Pro 20.04 LTS](https://aws.amazon.com/marketplace/pp/Amazon-Web-Services-Ubuntu-Pro-2004-LTS/B087L1R4G4).
 * If you do not already have an Amazon EC2 key pair, [create a new Amazon EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#prepare-key-pair). You will need the key pair name to specify the ```KeyName``` parameter when creating the AWS CloudFormation stack below. 
 * You will need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the selected AWS region. You will use the S3 bucket name to specify the ```S3Bucket``` parameter in the stack. The bucket is used to store the [A2D2](https://www.a2d2.audi/a2d2/en.html) data.
@@ -68,7 +68,7 @@ To get started:
 ### Configure the data service
 
 #### Create AWS CloudFormation Stack
-The [AWS CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html) template ```cfn/mozart.yml``` in this repository creates [AWS Identity and Access Management (IAM)](https://aws.amazon.com/iam/) resources, so when you [create the CloudFormation Stack using the console](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html), you must check 
+The [AWS CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html) template ```cfn/mozart.yml``` in this repository creates [AWS Identity and Access Management (IAM)](https://aws.amazon.com/iam/) resources, so when you [create the CloudFormation Stack using the console](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html), in the **Review** step, you must check 
 **I acknowledge that AWS CloudFormation might create IAM resources.** 
 
 Create a new AWS CloudFormation stack using the ```cfn/mozart.yml``` template. The stack input parameters you must specify are described below:
@@ -78,6 +78,7 @@ Create a new AWS CloudFormation stack using the ```cfn/mozart.yml``` template. T
 | KeyPairName | This is a *required* parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
 | RedshiftMasterUserPassword | This is a *required* parameter whereby you specify the Redshift database master user password.|
 | DesktopRemoteAccessCIDR | This is a *required* parameter whereby you specify the public IP CIDR range from where you need remote access to your graphics desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
+| DesktopInstanceType | This is a required parameter whereby you select an Amazon EC2 instance type for the ROS desktop. The default value, ```g3s.xlarge```, may not be available for your selected region, in which case, we recommend you try  ```g4dn.xlarge```, or one of the other instance types.
 | S3Bucket | This is a *required* parameter whereby you specify the name of the Amazon S3 bucket to store your data. **The S3 bucket must already exist.** |
 
 For all other stack input parameters, default values are recommended during first walkthrough. See complete list of all the [template input parameters](#InputParams) below. 
