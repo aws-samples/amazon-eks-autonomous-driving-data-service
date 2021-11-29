@@ -61,7 +61,7 @@ def main(config):
                 jobName=f'extract-tar-{job_name}',
                 jobQueue=job_queue,
                 jobDefinition=job_definition,
-                retryStrategy={'attempts': 2},
+                retryStrategy={'attempts': 5},
                 timeout={'attemptDurationSeconds': 86400},
                 containerOverrides={
                     'command': ['--key', f'{key}'],
