@@ -62,7 +62,7 @@ class S3TarExtractor(Process):
     P_CONCURRENT = 4
     FILE_CHUNK_COUNT = 20000
     GB = 1024**3
-    S3_MAX_IO_QUEUE = 20000
+    S3_MAX_IO_QUEUE = 1000
     S3_IO_CHUNKSIZE = 262144
     PUT_RETRY = 5
 
