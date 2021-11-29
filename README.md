@@ -144,7 +144,7 @@ Note the ```executionArn``` of the state machine execution in the output of the 
 
 You can see the status of the Step Function State Machine execution in the Step Functions console, as well. 
 
-The state machine execution time varies, and may take anywhere from 4 - 12 hours. In rare cases, it can take longer than 24 hours.  You can see the status and the CloudWatch logs for each AWS Batch job spawned by the Step Function State Machine execution in the Batch console. If a Batch job fails, it is automatically retried.
+The state machine execution time depends on many variable factors and may take anywhere from 4 - 24 hours, or possibly longer.  You can see the status and the CloudWatch logs for each AWS Batch job spawned by the Step Function State Machine execution in the AWS Batch console. If a Batch job fails, it is automatically retried.
 
 ### Run the data service
 
@@ -254,6 +254,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | DesktopEbsVolumeSize | This is a **required** parameter whereby you specify the size of the root EBS volume (default size is 200 GB) on the desktop. Typically, the default size is sufficient.|
 | DesktopEbsVolumeType | This is a **required** parameter whereby you select the [EBS volume type](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) (default is gp3). |
 | DesktopHasPublicIpAddress | This is a **required** parameter whereby you select whether a Public Ip Address be associated with the Desktop.  Default value is ```true```.|
+| DesktopRemoteAccessCIDR | This parameter specifies the public IP CIDR range from where you need remote access to your client desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
 | EKSEncryptSecrets | This is a **required** parameter whereby you select if encryption of EKS secrets is ```Enabled```. Default value is ```Enabled```.|
 | EKSEncryptSecretsKmsKeyArn | This is an *optional* advanced parameter whereby you specify the [AWS KMS](https://aws.amazon.com/kms/) key ARN that is used to encrypt EKS secrets. Leave blank to create a new KMS key.|
 | EKSNodeGroupInstanceType | This is a **required** parameter whereby you select EKS Node group EC2 instance type. Default value is ```r5n.8xlarge```.|
@@ -262,7 +263,8 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | EKSNodeGroupMaxSize | This is a **required** parameter whereby you specify EKS Node group maximum size. Default value is 8 nodes.|
 | EKSNodeGroupDesiredSize | This is a **required** parameter whereby you specify EKS Node group initial desired size. Default value is 2 nodes.|
 | FargateComputeType | This is a **required** parameter whereby you specify Fargate compute environment type. Allowed values are ```FARGATE_SPOT``` and ```FARGATE```. Default value is ```FARGATE_SPOT```. |
-| FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of 3600 GiB. Default value is 7200 GiB.|
+| FargateComputeMax | This is a **required** parameter whereby you specify maximum size of Fargate compute environment in vCpus. Default value is ```1024```.|
+| FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of ```2400 GiB```. Default value is ```7200 GiB```.|
 | FSxS3ImportPrefix | This is an *optional* advanced parameter whereby you specify FSx S3 bucket path prefix for importing data from S3 bucket. Leave blank to import the complete bucket.|
 | KeyPairName | This is a **required** parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
 | KubectlVersion | This is a **required** parameter whereby you specify EKS ```kubectl``` version. Default value is ```1.21.2/2021-07-05```. |
@@ -281,7 +283,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | RedshiftNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for Redshift cluster. Default value is ```ra3.4xlarge```.|
 | RedshiftNumberOfNodes | This is a **required** parameter whereby you specify the number of compute nodes in the Redshift cluster, which must be >= 2.|
 | RedshiftPortNumber | This is a **required** parameter whereby you specify the port number on which the Redshift cluster accepts incoming connections. Default value is ```5439```.|
-| RemoteAccessCIDR | This parameter specifies the public IP CIDR range from where you need remote access to your client desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
+| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are ```melodic``` on Ubuntu Bionic, and ```noetic```  on Ubuntu Focal. Default value is ```melodic```.|
 | S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
 | UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|
 | VpcCIDR | This is a **required** parameter whereby you specify the [Amazon VPC](https://aws.amazon.com/vpc/?vpc-blogs.sort-by=item.additionalFields.createdDate&vpc-blogs.sort-order=desc) CIDR for the VPC created in the stack. Default value is 172.30.0.0/16. If you change this value, all the subnet parameters above may need to be set, as well.|
