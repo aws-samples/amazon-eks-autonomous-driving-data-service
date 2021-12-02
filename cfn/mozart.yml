@@ -72,6 +72,8 @@ Parameters:
     Type: String
     Default: ra3.4xlarge
     AllowedValues:
+    - dc2.large
+    - ds2.xlarge
     - ra3.4xlarge
     - ra3.16xlarge
 
@@ -98,6 +100,7 @@ Parameters:
     Type: String
     Default: kafka.m5.2xlarge
     AllowedValues:
+    - kafka.m5.large
     - kafka.m5.2xlarge
     - kafka.m5.4xlarge
     
@@ -165,6 +168,9 @@ Parameters:
     Type: String
     Default: "r5n.8xlarge"
     AllowedValues:
+    - m5n.2xlarge
+    - m5n.4xlarge
+    - m5n.8xlarge
     - r5n.8xlarge
     - r5n.12xlarge
     - r5n.16xlarge
@@ -183,6 +189,9 @@ Parameters:
     Type: String
     Default: g3s.xlarge
     AllowedValues:
+      - m5n.xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
       - g3s.xlarge
       - g3.4xlarge
       - g3.8xlarge
