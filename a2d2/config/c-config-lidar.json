@@ -14,7 +14,7 @@
 			"lidar/rear_center"
 		],
 		"start_ts": 1554115465612291, 
-		"stop_ts": 1554116380647570,
+		"stop_ts": 1554115565612291,
 		"ros_topic": {
 				"lidar/front_center": "/a2d2/lidar/front_center",
 				"lidar/front_left": "/a2d2/lidar/front_left",
