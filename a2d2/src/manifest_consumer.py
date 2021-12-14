@@ -21,11 +21,8 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process
-import logging, time
+import logging
 import json
-import random
-import string
-import time
 
 from kafka import KafkaConsumer, KafkaAdminClient
 from util import random_string, is_close_msg

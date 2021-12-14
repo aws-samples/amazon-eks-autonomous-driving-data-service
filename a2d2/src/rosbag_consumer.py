@@ -21,19 +21,16 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process,Queue
-import threading, logging, time
+import logging, time
 import json
-import random
-import string
 import time
 import rosbag
 import rospy
 import os
-import boto3
 import shutil
 
 from kafka import KafkaConsumer, KafkaAdminClient
-from util import random_string, get_s3_client, get_data_class, get_topics_types, is_close_msg, mkdir_p
+from util import random_string,  get_data_class, get_topics_types, is_close_msg
 from s3_reader import S3Reader
 from s3_deleter import S3Deleter
 

@@ -32,11 +32,12 @@ import numpy as np
 import cv_bridge
 import rosbag
 
-from sensor_msgs.msg import Image
-
 from kafka import KafkaProducer
 from manifest_dataset import ManifestDataset
-from util import random_string, get_s3_resource, get_s3_client, ros_pcl2_dense, mkdir_p
+from bus_dataset import BusDataset
+from util import random_string, get_s3_resource
+from util import get_s3_client, ros_pcl2_dense, mkdir_p
+from util import bus_msg
 from view import transform_from_to
 from s3_reader import S3Reader
 
@@ -46,6 +47,9 @@ class Qmsg:
         self.ts = ts
 
 class RosbagProducer(Process):
+
+    SLEEP_INTERVAL = .000001 # seconds
+
     def __init__(self, dbconfig=None, servers=None,
                 request=None, data_store=None, calibration=None):
         Process.__init__(self)
@@ -69,6 +73,7 @@ class RosbagProducer(Process):
         self.topic_list = list()
         self.topic_index = 0
         self.last_topic = None
+
         for s in sensors:
             self.manifests[s] = self.create_manifest(dbconfig=dbconfig, sensor_id=s)
             _topic = self.request['ros_topic'][s]
@@ -107,16 +112,26 @@ class RosbagProducer(Process):
 
         cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
         cal_data = cal_obj.get()['Body'].read().decode('utf-8')
-        self.cal_json = json.loads(cal_data)
+        self.cal_json = json.loads(cal_data) 
+
 
     def create_manifest(self, dbconfig=None, sensor_id=None):
-        manifest = ManifestDataset(dbconfig=dbconfig, 
-		vehicle_id=self.request["vehicle_id"],
-		scene_id=self.request["scene_id"],
-		sensor_id=sensor_id,
-		start_ts=int(self.request["start_ts"]), 
-		stop_ts=int(self.request["stop_ts"]),
-                step=int(self.request["step"]))
+
+        if sensor_id == 'bus':
+            manifest = BusDataset(dbconfig=dbconfig, 
+                        vehicle_id=self.request["vehicle_id"],
+                        scene_id=self.request["scene_id"],
+                        start_ts=int(self.request["start_ts"]), 
+                        stop_ts=int(self.request["stop_ts"]),
+                        step=int(self.request["step"]))
+        else:
+            manifest = ManifestDataset(dbconfig=dbconfig, 
+                        vehicle_id=self.request["vehicle_id"],
+                        scene_id=self.request["scene_id"],
+                        sensor_id=sensor_id,
+                        start_ts=int(self.request["start_ts"]), 
+                        stop_ts=int(self.request["stop_ts"]),
+                        step=int(self.request["step"]))
 
         return manifest
 
@@ -267,6 +282,29 @@ class RosbagProducer(Process):
             if self.bag_lock:
                 self.bag_lock.release()
 
+
+    def bag_bus_data(self, manifest=None,  ros_topic=None):
+
+        while True:
+            rows = None
+            while not rows and manifest.is_open():
+                rows = manifest.fetch()
+            if not rows:
+                break
+        
+            for row in rows:
+                try:
+                    ros_msg = bus_msg(row)
+                    self.write_bag(ros_topic, ros_msg, ros_msg.header.stamp)
+                    if self.bag_lock:
+                        factor = len(self.topic_dict[ros_topic]) + 1
+                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
+                except BaseException as e:
+                    self.logger.error("bag bus error: " + str(e))
+
+            if self.request['preview']:
+                break
+
     def s3_bag_images(self, manifest=None,  ros_topic=None, sensor=None):
 
         s3_client = get_s3_client()
@@ -313,7 +351,7 @@ class RosbagProducer(Process):
                     os.remove(path)
                     if self.bag_lock:
                         factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(.000001*factor)
+                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
                 except BaseException as e:
                     self.logger.error("bag image error: " + str(e))
 
@@ -383,7 +421,7 @@ class RosbagProducer(Process):
                     self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp)
                     if self.bag_lock:
                         factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(.000001*factor)
+                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
                 except BaseException as e:
                     self.logger.error("bag image error: " + str(e))
 
@@ -436,7 +474,7 @@ class RosbagProducer(Process):
                     os.remove(path)
                     if self.bag_lock:
                         factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(.000001*factor)
+                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
                 except BaseException as e:
                     self.logger.error("bag point-cloud error: " + str(e))
 
@@ -507,7 +545,7 @@ class RosbagProducer(Process):
                     self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp)
                     if self.bag_lock:
                         factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(.000001*factor)
+                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
                 except BaseException as e:
                     self.logger.error("bag point-cloud error: " + str(e))
 
@@ -521,6 +559,8 @@ class RosbagProducer(Process):
                 self.bag_images(manifest=manifest, ros_topic=ros_topic, sensor=sensor)
             elif data_type == 'sensor_msgs/PointCloud2':
                 self.bag_pcl(manifest=manifest, ros_topic=ros_topic, sensor=sensor)
+            elif data_type ==  'a2d2_msgs/Bus':
+                self.bag_bus_data(manifest=manifest, ros_topic=ros_topic)
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)

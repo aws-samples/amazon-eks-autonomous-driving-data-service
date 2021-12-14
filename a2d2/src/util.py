@@ -28,10 +28,9 @@ import errno
 
 import boto3
 import numpy as np
-import sensor_msgs.point_cloud2 as pc2
 
 from sensor_msgs.msg import PointCloud2, PointField
-from std_msgs.msg import Header
+from a2d2_msgs.msg import Bus
 import rosbag
 
 def get_s3_client():
@@ -85,8 +84,11 @@ def get_data_class(data_type):
     elif data_type == 'sensor_msgs/PointCloud2':
         from sensor_msgs.msg import PointCloud2 
         data_class = PointCloud2
+    elif data_type == 'a2d2_msgs/Bus':
+        from a2d2_msgs.msg import Bus
+        data_class = Bus
     else:
-        raise ValueError("Data type not supported:{0}".format(data_type))
+        raise ValueError("Data type not supported:" + str(data_type))
 
     return data_class
 
@@ -110,6 +112,57 @@ def is_close_msg(json_msg):
         pass
 
     return close
+
+def bus_msg(row=None):
+    msg = Bus()
+
+    ts = row[2]
+    _stamp = divmod(ts, 1000000 ) #  time stamp is in micro secs
+    msg.header.stamp.secs = _stamp[0] # secs
+    msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
+
+    # linear accel
+    msg.vehicle_kinematics.acceleration.x = row[3]
+    msg.vehicle_kinematics.acceleration.y = row[4]
+    msg.vehicle_kinematics.acceleration.z = row[5]
+
+    # accelerator control
+    msg.control.accelerator_pedal = row[6]
+    msg.control.accelerator_pedal_gradient_sign = row[7]
+
+    # angular velocity
+    msg.vehicle_kinematics.angular_velocity.omega_x = row[8]
+    msg.vehicle_kinematics.angular_velocity.omega_y = row[9]
+    msg.vehicle_kinematics.angular_velocity.omega_z = row[10]
+
+    # brake pressure
+    msg.control.brake_pressure = row[11]
+
+    # distance pulse
+    msg.distance_pulse.front_left = row[12]
+    msg.distance_pulse.front_right = row[13]
+    msg.distance_pulse.rear_left = row[14]
+    msg.distance_pulse.rear_right = row[15]
+
+    # geo location
+    msg.geo_loction.latitude = row[16]
+    msg.geo_loction.latitude_direction = row[17]
+    msg.geo_loction.longitude = row[18]
+    msg.geo_loction.longitude_direction = row[19]
+
+    # angular orientation
+    msg.vehicle_kinematics.angular_orientation.pitch_angle = row[20]
+    msg.vehicle_kinematics.angular_orientation.roll_angle = row[21]
+
+    # steering 
+    msg.control.steeering_angle_calculated = row[22]
+    msg.control.steering_angle_calculated_sign = row[23]
+
+    # vehicle speed
+    msg.vehicle_kinematics.vehicle_speed = row[24]
+
+    return msg
+
 
 def ros_pcl2_sparse(points=None, reflectance=None, rows=None, cols=None, ts=None, frame_id=None):
   

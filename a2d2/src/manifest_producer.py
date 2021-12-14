@@ -24,14 +24,11 @@ import sys, traceback
 from multiprocessing import Process
 import logging, time
 import json
-import random
-import string
-import os
 import threading
-
 
 from kafka import KafkaProducer
 from manifest_dataset import ManifestDataset
+from bus_dataset import BusDataset
 from util import random_string
 
 class ManifestProducer(Process):
@@ -52,13 +49,21 @@ class ManifestProducer(Process):
 
 
     def create_manifest(self, dbconfig=None, sensor_id=None):
-        manifest = ManifestDataset(dbconfig, 
-		vehicle_id=self.request["vehicle_id"],
-		scene_id=self.request["scene_id"],
-		sensor_id=sensor_id,
-		start_ts=int(self.request["start_ts"]), 
-		stop_ts=int(self.request["stop_ts"]),
-                step=int(self.request["step"]))
+        if sensor_id == 'bus':
+            manifest = BusDataset(dbconfig=dbconfig, 
+                        vehicle_id=self.request["vehicle_id"],
+                        scene_id=self.request["scene_id"],
+                        start_ts=int(self.request["start_ts"]), 
+                        stop_ts=int(self.request["stop_ts"]),
+                        step=int(self.request["step"]))
+        else:
+            manifest = ManifestDataset(dbconfig=dbconfig, 
+                        vehicle_id=self.request["vehicle_id"],
+                        scene_id=self.request["scene_id"],
+                        sensor_id=sensor_id,
+                        start_ts=int(self.request["start_ts"]), 
+                        stop_ts=int(self.request["stop_ts"]),
+                        step=int(self.request["step"]))
 
         return manifest
 
@@ -70,11 +75,11 @@ class ManifestProducer(Process):
 
             response_topic = self.request["response_topic"]
             while True:
-                files = manifest.fetch()
-                if not files:
+                content = manifest.fetch()
+                if not content:
                     break
 
-                json_msg = {"type": "manifest", "files": files}  
+                json_msg = {"type": "manifest", "content": content}  
                 producer.send(response_topic, json.dumps(json_msg).encode('utf-8'))
                 producer.flush()
 

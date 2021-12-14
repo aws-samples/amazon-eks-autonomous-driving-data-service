@@ -121,3 +121,7 @@ $scripts_dir/eks-cluster-autoscaler.sh
 
 # Build ECR image
 $scripts_dir/build-ecr-image.sh
+
+# Build catkin_ws
+cd $DIR/a2d2/catkin_ws && catkin_make
+echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/catkin_ws/devel/setup.bash" >> /home/ubuntu/.bashrc

@@ -46,3 +46,13 @@ ENV PATH=/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 RUN apt install -y vim
 COPY src /mozart
 COPY bin/*.sh /usr/local/bin/
+
+COPY catkin_ws /catkin_ws
+RUN rm -rf /catkin_ws/build /catkin_ws/devel
+RUN cd /catkin_ws && catkin_make 
+
+ENV PKG_CONFIG_PATH=/catkin_ws/devel/lib/pkgconfig:$PKG_CONFIG_PATH
+ENV ROS_PACKAGE_PATH=/catkin_ws/src:$ROS_PACKAGE_PATH
+ENV CMAKE_PREFIX_PATH=/catkin_ws/devel:$CMAKE_PREFIX_PATH
+ENV PYTHONPATH=/catkin_ws/devel/lib/python3/dist-packages:$PYTHONPATH
+ENV LD_LIBRARY_PATH=/catkin_ws/devel/lib:$LD_LIBRARY_PATH
