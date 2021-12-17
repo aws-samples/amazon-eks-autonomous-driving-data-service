@@ -239,7 +239,11 @@ class RosbagProducer(Process):
             if self.bag_lock:
                 self.bag_lock.acquire()
 
-            _ntopics = len(self.topic_list)
+            _ntopics = 0
+            for _topic in self.topic_list:
+                if self.topic_dict[_topic]:
+                    _ntopics += 1
+
             if _ntopics > 1:
                 # add message to topic queue
                 self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
@@ -282,6 +286,49 @@ class RosbagProducer(Process):
             if self.bag_lock:
                 self.bag_lock.release()
 
+
+    def flush_bag(self):
+        try:
+            if self.bag_lock:
+                self.bag_lock.acquire()
+
+            _ntopics = len(self.topic_list)
+              
+            msg = None
+            ts = None
+            topic = None
+
+            _ntopics_flushed = 0
+            # rotate through topics and flush them to bag
+            self.logger.info("Flushing  ROS topics to bag")
+            for _ in range(_ntopics):
+                self.topic_index = (self.topic_index + 1) % _ntopics
+                _topic = self.topic_list[ self.topic_index ]
+                
+                if self.topic_dict[_topic]:
+                    front = self.topic_dict[_topic].pop(0)
+                    msg = front.msg
+                    ts = front.ts
+                    topic = _topic
+                else:
+                    _ntopics_flushed += 1
+
+                if topic and msg and ts:
+                    self.bag.write(topic, msg, ts)
+                
+                if _ntopics == _ntopics_flushed:
+                    break
+            self.logger.info("Flushed ROS topics to bag")
+
+        except Exception as _:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
+            raise
+        finally:
+            if self.bag_lock:
+                self.bag_lock.release()
 
     def bag_bus_data(self, manifest=None,  ros_topic=None):
 
@@ -591,8 +638,14 @@ class RosbagProducer(Process):
                 t.start()
 
             for t in tasks:
+                self.logger.info("Waiting for task:" + t.getName())
                 t.join()
+                self.logger.info("Completed task:" + t.getName())
 
+            self.logger.info("Flush bag")
+            self.flush_bag()
+
+            self.logger.info("Close bag")
             self.close_bag()
 
             json_msg = {"__close__": True} 

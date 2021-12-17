@@ -49,7 +49,7 @@ class BusDataset():
         self.pre_fetch_thread.join()
 
     def is_open(self):
-        return self.start_ts < self.stop_ts
+        return (self.start_ts < self.stop_ts) or self.pre_fetch_thread or self.next_batch
         
     def read(self, query=None):
         self.next_batch=self.dbreader.query(query)
