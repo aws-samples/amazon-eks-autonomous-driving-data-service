@@ -6,6 +6,7 @@
 		"vehicle_id": "a2d2",
 		"scene_id": "20190401121727",
 		"sensor_id": [
+			"bus", 
 			"lidar/front_center",
 			"lidar/front_left",
 			"lidar/side_left",
@@ -16,6 +17,7 @@
 		"start_ts": 1554115465612291, 
 		"stop_ts": 1554115565612291,
 		"ros_topic": {
+				"bus": "/a2d2/bus",
 				"lidar/front_center": "/a2d2/lidar/front_center",
 				"lidar/front_left": "/a2d2/lidar/front_left",
 				"lidar/side_left": "/a2d2/lidar/side_left",
@@ -24,6 +26,7 @@
 				"lidar/rear_center": "/a2d2/lidar/rear_center"
 		},
 		"data_type": {
+				"bus": "a2d2_msgs/Bus",
 				"lidar/front_center": "sensor_msgs/PointCloud2",
 				"lidar/front_left": "sensor_msgs/PointCloud2",
 				"lidar/side_left": "sensor_msgs/PointCloud2",
