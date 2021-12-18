@@ -56,6 +56,12 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
         $DIR/a2d2/config/c-config-ex2.json
 
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+        $DIR/a2d2/config/c-config-ex3.json
+
+sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
+        $DIR/a2d2/config/c-config-ex4.json
+
+sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
         $DIR/a2d2/config/c-config-lidar.json
              
 # Create kafka.config 
