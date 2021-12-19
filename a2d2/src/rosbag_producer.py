@@ -71,14 +71,17 @@ class RosbagProducer(Process):
         sensors = self.request['sensor_id']
         self.topic_dict = dict()
         self.topic_list = list()
+        self.topic_active = dict()
         self.topic_index = 0
-        self.last_topic = None
+        self.round_robin = list()
+        self.bus_topic = None
 
         for s in sensors:
             self.manifests[s] = self.create_manifest(dbconfig=dbconfig, sensor_id=s)
             _topic = self.request['ros_topic'][s]
             self.topic_dict[_topic] = []
             self.topic_list.append(_topic)
+            self.topic_active[_topic] = True
 
         if len(sensors) > 1:
             self.bag_lock = threading.Lock()
@@ -97,18 +100,13 @@ class RosbagProducer(Process):
         self.accept = request['accept']
         if self.accept.startswith('s3/'):
             s3_config = self.data_store['s3']
-            if self.multipart:
-                self.chunk_count = 2 
             self.rosbag_bucket = s3_config['rosbag_bucket']
             self.rosbag_prefix = s3_config['rosbag_prefix']
             if not self.rosbag_prefix.endswith("/"):
                 self.rosbag_prefix += "/"
-        elif self.accept.startswith('efs/'):
-            if self.multipart:
-                self.chunk_count = 4 
-        elif self.accept.startswith('fsx/'):
-            if self.multipart:
-                self.chunk_count = 6 
+
+        if self.multipart:
+            self.chunk_count = len(self.topic_list)*2
 
         cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
         cal_data = cal_obj.get()['Body'].read().decode('utf-8')
@@ -234,48 +232,52 @@ class RosbagProducer(Process):
             self.bag = None
             self.bag_path = None
 
+    def topic_has_data(self, topic):
+        return  self.topic_dict[topic] or self.topic_active[topic]
+
     def write_bag(self, topic, msg, ts, s3_client=None):
         try:
             if self.bag_lock:
                 self.bag_lock.acquire()
 
-            _ntopics = 0
-            for _topic in self.topic_list:
-                if self.topic_dict[_topic]:
-                    _ntopics += 1
-
-            if _ntopics > 1:
-                # add message to topic queue
-                self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
+            _ntopics = len(self.topic_list)
+            
+            # add message to topic queue
+            self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
                 
-                msg = None
-                ts = None
-                topic = None
+            msg = None
+            ts = None
 
-                # rotate through topics
-                for _ in range(_ntopics):
-                    self.topic_index = (self.topic_index + 1) % _ntopics
-                    _topic = self.topic_list[ self.topic_index ]
-                    if _topic == self.last_topic:
-                        continue
+            # rotate through topics
+            for _topic in self.topic_list:
+                self.topic_index = (self.topic_index + 1) % _ntopics
+                _topic = self.topic_list[ self.topic_index ]
+                if _topic in self.round_robin and any([True for k in self.topic_active.keys() if not (k in self.round_robin) and self.topic_has_data(k)]):
+                    continue
 
-                    if self.topic_dict[_topic]:
-                        front = self.topic_dict[_topic].pop(0)
-                        msg = front.msg
-                        ts = front.ts
-                        topic = _topic
-                        break
+                if self.topic_dict[_topic]:
+                    front = self.topic_dict[_topic].pop(0)
+                    msg = front.msg
+                    ts = front.ts
+                    topic = _topic
+                    break
 
             if topic and msg and ts:
                 if not self.bag:
                     self.open_bag()
             
                 self.bag.write(topic, msg, ts)
-                self.last_topic = topic
-                if self.multipart:
-                    self.msg_count += 1
-                    if self.msg_count % self.chunk_count == 0:
-                        self.close_bag(s3_client=s3_client)
+                if topic != self.bus_topic:
+                    self.round_robin.append(topic)
+                    if self.multipart:
+                        self.msg_count += 1
+                        if self.msg_count % self.chunk_count == 0:
+                            self.close_bag(s3_client=s3_client)
+
+            sensor_topics = [k for k in self.topic_active.keys() if k != self.bus_topic and self.topic_has_data(k)]
+            if (len(self.round_robin) >= len(sensor_topics)) and self.round_robin:
+                self.round_robin.pop(0)
+            
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -314,6 +316,8 @@ class RosbagProducer(Process):
                     _ntopics_flushed += 1
 
                 if topic and msg and ts:
+                    if not self.bag:
+                        self.open_bag()
                     self.bag.write(topic, msg, ts)
                 
                 if _ntopics == _ntopics_flushed:
@@ -332,6 +336,8 @@ class RosbagProducer(Process):
 
     def bag_bus_data(self, manifest=None,  ros_topic=None):
 
+        self.bus_topic = ros_topic
+        
         while True:
             rows = None
             while not rows and manifest.is_open():
@@ -351,6 +357,8 @@ class RosbagProducer(Process):
 
             if self.request['preview']:
                 break
+        
+        self.topic_active[ros_topic] = False
 
     def s3_bag_images(self, manifest=None,  ros_topic=None, sensor=None):
 
@@ -409,6 +417,8 @@ class RosbagProducer(Process):
         s3_reader.join(timeout=2)
         if s3_reader.is_alive():
             s3_reader.terminate()
+        
+        self.topic_active[ros_topic] = False
 
     def bag_images(self, manifest=None,  ros_topic=None, sensor=None):
 
@@ -475,6 +485,7 @@ class RosbagProducer(Process):
             if self.request['preview']:
                 break
 
+        self.topic_active[ros_topic] = False
 
     def s3_bag_pcl(self, manifest=None,  ros_topic=None, sensor=None):
 
@@ -532,6 +543,8 @@ class RosbagProducer(Process):
         s3_reader.join(timeout=2)
         if s3_reader.is_alive():
             s3_reader.terminate()
+
+        self.topic_active[ros_topic] = False
 
     def bag_pcl(self, manifest=None,  ros_topic=None, sensor=None):
 
@@ -599,6 +612,7 @@ class RosbagProducer(Process):
             if self.request['preview']:
                 break
 
+        self.topic_active[ros_topic] = False
     
     def bag_data(self, manifest=None, data_type=None, ros_topic=None, sensor=None):
         try:
