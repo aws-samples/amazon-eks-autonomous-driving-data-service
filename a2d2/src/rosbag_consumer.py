@@ -55,14 +55,16 @@ class RosbagConsumer(Process):
         if not self.s3:
             self.clean_up = set()
 
+        self.ros_publishers = dict()
+
     def get_ros_publishers(self, bag_path):
-        ros_publishers = dict()
         topics_types = get_topics_types(bag_path)
         for ros_topic, data_type in topics_types.items():
-            ros_data_class = get_data_class(data_type)
-            ros_publisher = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
-            ros_publishers[ros_topic] = ros_publisher
-        return ros_publishers
+            if not ros_topic in self.ros_publishers:
+                ros_data_class = get_data_class(data_type)
+                ros_publisher = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
+                self.ros_publishers[ros_topic] = ros_publisher
+        return self.ros_publishers
 
     def read_s3(self, drain=False):
         bag_path = None
@@ -112,6 +114,7 @@ class RosbagConsumer(Process):
 
             consumer = KafkaConsumer(self.response_topic, 
                                 bootstrap_servers=self.servers,
+                                auto_offset_reset="earliest",
                                 client_id=random_string())
 
             if self.s3:
@@ -133,8 +136,8 @@ class RosbagConsumer(Process):
                 except Exception as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-                    self.logger.error(str(exc_type))
-                    self.logger.error(str(exc_value))
+                    print(str(exc_type))
+                    print(str(exc_value))
 
             if self.s3:
                 self.read_s3(drain=True)
@@ -159,5 +162,5 @@ class RosbagConsumer(Process):
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+            print(str(exc_type))
+            print(str(exc_value))

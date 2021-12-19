@@ -43,6 +43,7 @@ class ManifestConsumer(Process):
         try:
             consumer = KafkaConsumer(self.response_topic, 
                                 bootstrap_servers=self.servers,
+                                auto_offset_reset="earliest",
                                 client_id=random_string())
 
             self.logger.info("manifest consumer on {0} kafka topic".format(self.response_topic))
