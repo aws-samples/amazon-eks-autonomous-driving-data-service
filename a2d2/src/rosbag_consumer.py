@@ -21,6 +21,8 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process,Queue
+from queue import Empty, Full
+
 import logging, time
 import json
 import time
@@ -35,6 +37,7 @@ from s3_reader import S3Reader
 from s3_deleter import S3Deleter
 
 class RosbagConsumer(Process):
+
     def __init__(self, servers=None, response_topic=None, s3=False):
         Process.__init__(self)
         self.logger = logging.getLogger("rosbag_consumer")
@@ -69,17 +72,19 @@ class RosbagConsumer(Process):
     def read_s3(self, drain=False):
         bag_path = None
         try:
-            msg = self.s3_read_resp.get(block=drain)
-            bag_info = msg.split(" ")
-            bag_path = bag_info[0]
+            try:
+                msg = self.s3_read_resp.get(block=drain )
+                bag_info = msg.split(" ")
+                bag_path = bag_info[0]
 
-            ros_publishers = self.get_ros_publishers(bag_path)
-
-            bag = rosbag.Bag(bag_path)
-            for ros_topic, ros_msg, _ in bag.read_messages():
-                ros_publishers[ros_topic].publish(ros_msg)
-            bag.close()
-            self.s3_delete_req.put(msg)
+                ros_publishers = self.get_ros_publishers(bag_path)
+                bag = rosbag.Bag(bag_path)
+                for ros_topic, ros_msg, _ in bag.read_messages():
+                    ros_publishers[ros_topic].publish(ros_msg)
+                bag.close()
+                self.s3_delete_req.put(msg, block=False)
+            except Empty:
+                pass
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -140,11 +145,14 @@ class RosbagConsumer(Process):
                     print(str(exc_value))
 
             if self.s3:
-                self.read_s3(drain=True)
                 self.s3_read_req.put("__close__")
+                time.sleep(5)
+                self.read_s3(drain=True)
+                
                 self.s3_reader.join(timeout=2)
                 if self.s3_reader.is_alive():
                     self.s3_reader.terminate()
+
                 self.s3_delete_req.put("__close__")
                 time.sleep(5)
                 self.s3_deleter.join(timeout=2)
