@@ -67,6 +67,7 @@ class RosbagConsumer(Process):
                 ros_data_class = get_data_class(data_type)
                 ros_publisher = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
                 self.ros_publishers[ros_topic] = ros_publisher
+                time.sleep(1)
         return self.ros_publishers
 
     def read_s3(self, drain=False):

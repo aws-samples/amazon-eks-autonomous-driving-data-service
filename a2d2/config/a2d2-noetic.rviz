@@ -63,7 +63,7 @@ Visualization Manager:
       Min Value: 0
       Name: Image
       Normalize Range: true
-      Queue Size: 2
+      Queue Size: 128
       Transport Hint: raw
       Unreliable: false
       Value: true
@@ -85,7 +85,7 @@ Visualization Manager:
       Min Color: 0; 0; 0
       Name: PointCloud2
       Position Transformer: XYZ
-      Queue Size: 10
+      Queue Size: 128
       Selectable: false
       Size (Pixels): 3
       Size (m): 0.009999999776482582
