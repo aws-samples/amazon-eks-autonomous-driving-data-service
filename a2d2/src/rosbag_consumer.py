@@ -21,7 +21,10 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process,Queue
-from queue import Empty, Full
+try:
+    from queue import Empty # For Python 3.x
+except ImportError:
+    from Queue import  Empty  # For Python 2.7.x
 
 import logging, time
 import json
