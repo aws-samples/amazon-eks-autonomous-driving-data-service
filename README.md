@@ -176,7 +176,7 @@ For matching response data staging options in data client request, see ```reques
 ### Run the data service client
 
 
-To visualize the response data requested by the A2D2 data client, we will use [rviz](http://wiki.ros.org/rviz) tool on the graphics desktop. Open a terminal on the desktop, and run ```rviz```. In the ```rviz``` tool, use **File>Open Config** to select  ```/home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/config/a2d2.rviz``` as the ```rviz``` config (select ```a2d2-noetic.rviz``` for ROS ```noetic```). You should see ```rviz``` tool now configured with two areas, one for visualizing image data, and the other for visualizing point cloud data.
+To visualize the response data requested by the A2D2 data client, we will use [rviz](http://wiki.ros.org/rviz) tool on the graphics desktop. Open a terminal on the desktop, and run ```rviz```. In the ```rviz``` tool, use **File>Open Config** to select  ```/home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/config/a2d2.rviz``` as the ```rviz``` config. You should see ```rviz``` tool now configured with two areas, one for visualizing image data, and the other for visualizing point cloud data.
   
 To run the data client, execute the following command in the *working directory*:
 
