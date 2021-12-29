@@ -236,7 +236,7 @@ Parameters:
     Description: >-
      ROS version. 
     Type: String
-    Default: "melodic"
+    Default: "noetic"
     AllowedValues:
      - "melodic"
      - "noetic"
