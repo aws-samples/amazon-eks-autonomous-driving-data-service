@@ -41,7 +41,7 @@ from s3_deleter import S3Deleter
 
 class RosbagConsumer(Process):
 
-    def __init__(self, servers=None, response_topic=None, s3=False):
+    def __init__(self, servers=None, response_topic=None, s3=False, use_time=None):
         Process.__init__(self)
         self.logger = logging.getLogger("rosbag_consumer")
         logging.basicConfig(
@@ -51,6 +51,7 @@ class RosbagConsumer(Process):
         self.servers = servers
         self.response_topic = response_topic
         self.tmp = os.getenv("TMP", default="/tmp")
+        self.use_time = use_time
 
         self.s3 = s3
         if self.s3:
@@ -73,6 +74,14 @@ class RosbagConsumer(Process):
                 time.sleep(1)
         return self.ros_publishers
 
+    @staticmethod
+    def set_received_time(ros_msg):
+        _ts = time.time()*1000000
+        _stamp = divmod(_ts, 1000000 ) #stamp in micro secs
+        ros_msg.header.stamp.secs = int(_stamp[0]) # secs
+        ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        return ros_msg
+
     def read_s3(self, drain=False):
         bag_path = None
         try:
@@ -84,6 +93,8 @@ class RosbagConsumer(Process):
                 ros_publishers = self.get_ros_publishers(bag_path)
                 bag = rosbag.Bag(bag_path)
                 for ros_topic, ros_msg, _ in bag.read_messages():
+                    if self.use_time == "received":
+                        ros_msg = RosbagConsumer.set_received_time(ros_msg)
                     ros_publishers[ros_topic].publish(ros_msg)
                 bag.close()
                 self.s3_delete_req.put(msg, block=False)
@@ -109,6 +120,8 @@ class RosbagConsumer(Process):
 
             bag = rosbag.Bag(bag_path)
             for ros_topic, ros_msg, _ in bag.read_messages():
+                if self.use_time == "received":
+                    ros_msg = RosbagConsumer.set_received_time(ros_msg)
                 ros_publishers[ros_topic].publish(ros_msg)
             bag.close()
 

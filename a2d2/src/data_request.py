@@ -34,7 +34,7 @@ from manifest_consumer import ManifestConsumer
 
 
 class DataRequest(Process):
-    def __init__(self, servers=None, request=None):
+    def __init__(self, servers=None, request=None, use_time=None):
         Process.__init__(self)
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
@@ -43,6 +43,7 @@ class DataRequest(Process):
 
         self.servers = servers
         self.request = request
+        self.use_time = use_time
         
     def request_rosbag(self):
         try:
@@ -51,7 +52,7 @@ class DataRequest(Process):
 
             response_topic = random_string()
             s3 = self.request["accept"].startswith("s3/")
-            t = RosbagConsumer(servers=self.servers, response_topic=response_topic, s3=s3)
+            t = RosbagConsumer(servers=self.servers, response_topic=response_topic, s3=s3, use_time=self.use_time)
             t.start()
 
             self.request["response_topic"] = response_topic

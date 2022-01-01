@@ -40,8 +40,9 @@ class DataClient():
             tasks = []
 
             requests = self.config["requests"]
+            use_time = config.get("use_time", "received")
             for request in requests:
-                t = DataRequest(servers=self.config["servers"], request=request)
+                t = DataRequest(servers=self.config["servers"], request=request, use_time=use_time)
                 tasks.append(t)
                 t.start()
 
