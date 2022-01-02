@@ -215,6 +215,8 @@ Below, we explain the semantics of the various fields in the data client request
 | Request field name | Request field description |
 | --- | ----------- |
 | ```servers``` | The ```servers``` identify the [AWS MSK](https://aws.amazon.com/msk/) Kafka cluster endpoint. |
+| ```delay``` | The ```delay``` specifies the delay in seconds that the data client delays sending the request. Default value is ```0```. |
+| ```use_time``` | (Optional) The ```use_time``` specifies whether to use the ```received```  time, or ```header``` time when playing back the received messages. Default value is ```received```. |
 | ```requests```| The JSON document sent by the client to the data service must include an array of one or more data ```requests``` for drive scene data. |
 | ```requests.kafka_topic``` | The ```kafka_topic``` specifies the Kafka topic on which the data request is sent from the client to the data service. The data service is listening on the topic. |
 | ```requests.vehicle_id``` | The ```vehicle_id``` is used to identify the relevant drive scene dataset. |
@@ -225,8 +227,8 @@ Below, we explain the semantics of the various fields in the data client request
 | ```requests.data_type```| The ```data_type``` is a dictionary from ```sensor ids``` to ```ros``` data types.  |
 | ```requests.step``` | The ```step``` is the discreet time interval (microseconds) used to discretize the timespan between ```start_ts``` and ```stop_ts```. If ```requests.accept``` value contains ```multipart```, the data service responds with a ```rosbag``` file for each discreet ```step```: See [possible values](#AcceptValues) below. |
 | ```requests.accept``` | The ```accept``` specifies the response data staging format acceptable to the client: See [possible values](#AcceptValues) below. |
-| ```requests.image``` | (Optional) The value ```undistorted``` undistorts the camera image. Undistoring an image slows down the image frame rate. |
-| ```requests.lidar_view``` | (Opitonal) The value ```vehicle``` transforms lidar points to ```vehicle``` frame of reference view. |
+| ```requests.image``` | (Optional) The value ```undistorted``` undistorts the camera image. Undistoring an image slows down the image frame rate. Default value is ```original``` distorted image.|
+| ```requests.lidar_view``` | (Optional) The value ```vehicle``` transforms lidar points to ```vehicle``` frame of reference view. Default value is ```camera```.|
 |```requests.preview```| If the ```preview``` field is set to ```true```, the data service returns requested data over a single time ```step``` starting from ```start_ts``` , and ignores the ```stop_ts```.|
 
 #### <a name="AcceptValues"></a>  Possible ```requests.accept``` field values
