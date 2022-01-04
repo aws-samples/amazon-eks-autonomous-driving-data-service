@@ -1,5 +1,5 @@
 float32 accelerator_pedal
-float32 accelerator_pedal_gradient_sign
+uint8 accelerator_pedal_gradient_sign
 float32 brake_pressure 
 float32 steeering_angle_calculated
 uint8   steering_angle_calculated_sign 
