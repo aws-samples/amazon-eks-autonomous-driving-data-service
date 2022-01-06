@@ -14,8 +14,8 @@
 			"lidar/side_right",
 			"lidar/rear_center"
 		],
-		"start_ts": 1554115465612291, 
-		"stop_ts": 1554115565612291,
+		"start_ts": 1554115565612291, 
+		"stop_ts": 1554115765612291,
 		"ros_topic": {
 				"bus": "/a2d2/bus",
 				"lidar/front_center": "/a2d2/lidar/front_center",
