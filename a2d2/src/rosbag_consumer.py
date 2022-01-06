@@ -31,13 +31,15 @@ import json
 import time
 import rosbag
 import rospy
+
 import os
 import shutil
 
 from kafka import KafkaConsumer, KafkaAdminClient
-from util import random_string,  get_data_class, get_topics_types, is_close_msg
+from util import random_string,  is_close_msg
 from s3_reader import S3Reader
 from s3_deleter import S3Deleter
+from ros_util import RosUtil
 
 class RosbagConsumer(Process):
 
@@ -63,40 +65,34 @@ class RosbagConsumer(Process):
             self.clean_up = set()
 
         self.ros_publishers = dict()
-
-    def get_ros_publishers(self, bag_path):
-        topics_types = get_topics_types(bag_path)
+    
+    def __get_ros_publishers(self, reader):
+        topics_types = RosUtil.get_topics_types(reader)
         for ros_topic, data_type in topics_types.items():
             if not ros_topic in self.ros_publishers:
-                ros_data_class = get_data_class(data_type)
-                ros_publisher = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
-                self.ros_publishers[ros_topic] = ros_publisher
+                ros_data_class = RosUtil.get_data_class(data_type)
+                self.ros_publishers[ros_topic] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
                 time.sleep(1)
-        return self.ros_publishers
+        
 
-    @staticmethod
-    def set_received_time(ros_msg):
-        _ts = time.time()*1000000
-        _stamp = divmod(_ts, 1000000 ) #stamp in micro secs
-        ros_msg.header.stamp.secs = int(_stamp[0]) # secs
-        ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
-        return ros_msg
+    def __publish_msgs(self, bag_path):
 
-    def read_s3(self, drain=False):
+        reader = rosbag.Bag(bag_path)
+        self.__get_ros_publishers(reader)
+        for ros_topic, ros_msg, _ in reader.read_messages():
+            if self.use_time == "received":
+                RosUtil.set_ros_msg_received_time(ros_msg)
+            self.ros_publishers[ros_topic].publish(ros_msg)
+        reader.close()
+
+    def __read_s3(self, drain=False):
         bag_path = None
         try:
             try:
                 msg = self.s3_read_resp.get(block=drain )
                 bag_info = msg.split(" ")
                 bag_path = bag_info[0]
-
-                ros_publishers = self.get_ros_publishers(bag_path)
-                bag = rosbag.Bag(bag_path)
-                for ros_topic, ros_msg, _ in bag.read_messages():
-                    if self.use_time == "received":
-                        ros_msg = RosbagConsumer.set_received_time(ros_msg)
-                    ros_publishers[ros_topic].publish(ros_msg)
-                bag.close()
+                self.__publish_msgs(bag_path)
                 self.s3_delete_req.put(msg, block=False)
             except Empty:
                 pass
@@ -106,25 +102,17 @@ class RosbagConsumer(Process):
             self.logger.info(str(exc_type))
             self.logger.info(str(exc_value))
 
-    def publish_bag(self, json_msg):
+    def __publish_bag(self, json_msg):
         if self.s3:
             bag_bucket = json_msg["bag_bucket"]
             bag_prefix = json_msg["bag_prefix"]
             bag_name = json_msg["bag_name"]
             msg = bag_bucket + " " + bag_prefix + bag_name
             self.s3_read_req.put(msg)
-            self.read_s3()
+            self.__read_s3()
         else:
             bag_path = json_msg['bag_path']
-            ros_publishers = self.get_ros_publishers(bag_path)
-
-            bag = rosbag.Bag(bag_path)
-            for ros_topic, ros_msg, _ in bag.read_messages():
-                if self.use_time == "received":
-                    ros_msg = RosbagConsumer.set_received_time(ros_msg)
-                ros_publishers[ros_topic].publish(ros_msg)
-            bag.close()
-
+            self.__publish_msgs(bag_path)
             bag_dir = bag_path.rsplit('/', 1)[0]
             self.clean_up.add(bag_dir)
 
@@ -132,8 +120,9 @@ class RosbagConsumer(Process):
         
         try: 
             self.logger.info("starting rosbag_consumer:{0}".format(self.response_topic))
-            rospy.init_node("mozart_rosbag_{0}".format(random_string(6)))
-
+            node_name = "mozart_rosbag_{0}".format(random_string(6))
+            rospy.init_node(node_name)
+            
             consumer = KafkaConsumer(self.response_topic, 
                                 bootstrap_servers=self.servers,
                                 auto_offset_reset="earliest",
@@ -154,7 +143,7 @@ class RosbagConsumer(Process):
                         print(json_str)
                         break
 
-                    self.publish_bag(json_msg)
+                    self.__publish_bag(json_msg)
                 except Exception as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -164,7 +153,7 @@ class RosbagConsumer(Process):
             if self.s3:
                 self.s3_read_req.put("__close__")
                 time.sleep(5)
-                self.read_s3(drain=True)
+                self.__read_s3(drain=True)
                 
                 self.s3_reader.join(timeout=2)
                 if self.s3_reader.is_alive():

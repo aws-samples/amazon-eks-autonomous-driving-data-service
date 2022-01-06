@@ -36,10 +36,10 @@ from kafka import KafkaProducer
 from manifest_dataset import ManifestDataset
 from bus_dataset import BusDataset
 from util import random_string, get_s3_resource
-from util import get_s3_client, ros_pcl2_dense, mkdir_p
-from util import bus_msg
+from util import get_s3_client, mkdir_p
 from view import transform_from_to
 from s3_reader import S3Reader
+from ros_util import RosUtil
 
 class Qmsg:
     def __init__(self, msg=None, ts=None):
@@ -77,7 +77,7 @@ class RosbagProducer(Process):
         self.bus_topic = None
 
         for s in sensors:
-            self.manifests[s] = self.create_manifest(dbconfig=dbconfig, sensor_id=s)
+            self.manifests[s] = self.__create_manifest(dbconfig=dbconfig, sensor_id=s)
             _topic = self.request['ros_topic'][s]
             self.topic_dict[_topic] = []
             self.topic_list.append(_topic)
@@ -112,8 +112,7 @@ class RosbagProducer(Process):
         cal_data = cal_obj.get()['Body'].read().decode('utf-8')
         self.cal_json = json.loads(cal_data) 
 
-
-    def create_manifest(self, dbconfig=None, sensor_id=None):
+    def __create_manifest(self, dbconfig=None, sensor_id=None):
 
         if sensor_id == 'bus':
             manifest = BusDataset(dbconfig=dbconfig, 
@@ -133,55 +132,37 @@ class RosbagProducer(Process):
 
         return manifest
 
-    def fsx_read_image(self, id=None, img_path=None, image_data=None):
+    def __fsx_read_image(self, id=None, img_path=None, image_data=None):
         ''' read image file from fsx file system '''
         fsx_config = self.data_store['fsx']
         fsx_root = fsx_config['root']
         image_data[id] = cv2.imread(os.path.join(fsx_root, img_path))
     
     
-    def fsx_read_pcl(self, id=None, pcl_path=None, npz=None):
-        ''' read pcl file from fsx file system '''
+    def __fsx_read_pcl_npz(self, id=None, pcl_path=None, npz=None):
+        ''' read pcl npz file from fsx file system '''
         fsx_config = self.data_store['fsx']
         fsx_root = fsx_config['root']
         pcl_path = os.path.join(fsx_root, pcl_path)
         npz[id] =  np.load(pcl_path)
         
-    def efs_read_image(self, id=None, img_path=None, image_data=None):
+    def __efs_read_image(self, id=None, img_path=None, image_data=None):
         ''' read image file from efs file system '''
         efs_config = self.data_store['efs']
         efs_root = efs_config['root']
         image_data[id] = cv2.imread(os.path.join(efs_root, img_path))
     
     
-    def efs_read_pcl(self, id=None, pcl_path=None, npz=None):
-        ''' read pcl file from efs file system '''
+    def __efs_read_pcl_npz(self, id=None, pcl_path=None, npz=None):
+        ''' read pcl npz file from efs file system '''
         efs_config = self.data_store['efs']
         efs_root = efs_config['root']
         pcl_path = os.path.join(efs_root, pcl_path)
         npz[id] =  np.load(pcl_path)
 
-    @staticmethod
-    def undistort_image(image=None, lens=None, dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
-            
-        if (lens == 'Fisheye'):
-            return cv2.fisheye.undistortImage(image, intr_mat_dist,
-                                        D=dist_parms, Knew=intr_mat_undist)
-        elif (lens == 'Telecam'):
-            return cv2.undistort(image, intr_mat_dist, 
-                        distCoeffs=dist_parms, newCameraMatrix=intr_mat_undist)
-        else:
-            return image
-
-    @staticmethod
-    def project_lidar_from_to(points=None, trans=None):
-        points_hom = np.ones((points.shape[0], 4))
-        points_hom[:, 0:3] = points
-        points_trans = (np.matmul(trans, points_hom.T)).T 
     
-        return points_trans
 
-    def create_bag_dir(self):
+    def __create_bag_dir(self):
         if self.accept.startswith('s3/'):
             self.bag_dir = os.path.join(self.tmp, self.request['response_topic'])
         elif self.accept.startswith('fsx/'):
@@ -193,7 +174,7 @@ class RosbagProducer(Process):
 
         mkdir_p(self.bag_dir) 
 
-    def open_bag(self):
+    def __open_bag(self):
         if self.multipart:
             name = "input-{0}.bag".format(self.msg_count)
         else:
@@ -203,10 +184,9 @@ class RosbagProducer(Process):
         self.bag_path = os.path.join(self.bag_dir, name)
         self.bag = rosbag.Bag(self.bag_path, 'w')
 
-    def close_bag(self, s3_client=None):
+    def __close_bag(self, s3_client=None):
         if self.bag:
             self.bag.close()
-
             resp_topic = self.request['response_topic']
             if self.accept.startswith("s3/"):
                 if s3_client == None:
@@ -232,64 +212,48 @@ class RosbagProducer(Process):
             self.bag = None
             self.bag_path = None
 
-    def topic_has_data(self, topic):
-        return  self.topic_dict[topic] or self.topic_active[topic]
+    def __write_ros_msg_to_bag(self, topic=None, msg=None, ts=None, s3_client=None, flush=False):
 
-    def write_bag(self, topic, msg, ts, s3_client=None):
-        try:
-            if self.bag_lock:
-                self.bag_lock.acquire()
-
-            _ntopics = len(self.topic_list)
-            
-            # add message to topic queue
-            self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
+        if not self.bag:
+            self.__open_bag()
+        self.bag.write(topic, msg, ts)
                 
-            msg = None
-            ts = None
+        if not flush and topic != self.bus_topic:
+            self.round_robin.append(topic)
+            if self.multipart:
+                self.msg_count += 1
+                if self.msg_count % self.chunk_count == 0:
+                    self.__close_bag(s3_client=s3_client)
 
-            # rotate through topics
-            for _topic in self.topic_list:
-                self.topic_index = (self.topic_index + 1) % _ntopics
-                _topic = self.topic_list[ self.topic_index ]
-                if _topic in self.round_robin and any([True for k in self.topic_active.keys() if not (k in self.round_robin) and self.topic_has_data(k)]):
-                    continue
+    def __is_topic_alive(self, topic):
+        return  self.topic_dict[topic] or self.topic_active[topic]
+    
+    def __next_round_robin_topic(self,  topic=None, msg=None, ts=None):
+        # add message to topic queue
+        self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
+                
+        msg = None
+        ts = None
+        topic = None
 
-                if self.topic_dict[_topic]:
-                    front = self.topic_dict[_topic].pop(0)
-                    msg = front.msg
-                    ts = front.ts
-                    topic = _topic
-                    break
+        # round robin through topics
+        _ntopics = len(self.topic_list)
+        for _topic in self.topic_list:
+            self.topic_index = (self.topic_index + 1) % _ntopics
+            _topic = self.topic_list[ self.topic_index ]
+            if _topic in self.round_robin and any([True for k in self.topic_active.keys() if not (k in self.round_robin) and self.__is_topic_alive(k)]):
+                continue
 
-            if topic and msg and ts:
-                if not self.bag:
-                    self.open_bag()
-            
-                self.bag.write(topic, msg, ts)
-                if topic != self.bus_topic:
-                    self.round_robin.append(topic)
-                    if self.multipart:
-                        self.msg_count += 1
-                        if self.msg_count % self.chunk_count == 0:
-                            self.close_bag(s3_client=s3_client)
+            if self.topic_dict[_topic]:
+                front = self.topic_dict[_topic].pop(0)
+                msg = front.msg
+                ts = front.ts
+                topic = _topic
+                break
+        
+        return topic, msg, ts
 
-            sensor_topics = [k for k in self.topic_active.keys() if k != self.bus_topic and self.topic_has_data(k)]
-            if (len(self.round_robin) >= len(sensor_topics)) and self.round_robin:
-                self.round_robin.pop(0)
-            
-        except Exception as _:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
-            raise
-        finally:
-            if self.bag_lock:
-                self.bag_lock.release()
-
-
-    def flush_bag(self):
+    def __flush_bag(self):
         try:
             if self.bag_lock:
                 self.bag_lock.acquire()
@@ -316,9 +280,7 @@ class RosbagProducer(Process):
                     _ntopics_flushed += 1
 
                 if topic and msg and ts:
-                    if not self.bag:
-                        self.open_bag()
-                    self.bag.write(topic, msg, ts)
+                    self.__write_ros_msg_to_bag(topic=topic, msg=msg, ts=ts, s3_client=None, flush=True)
                 
                 if _ntopics == _ntopics_flushed:
                     break
@@ -330,14 +292,323 @@ class RosbagProducer(Process):
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
             raise
+        finally:    
+            if self.bag_lock:
+                self.bag_lock.release()
+    
+
+    def __topic_sleep(self, ros_topic=None):
+        if self.bag_lock:
+            factor = len(self.topic_dict[ros_topic]) + 1
+            time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
+
+    def __record_ros_msg(self, topic=None, msg=None, ts=None, s3_client=None):
+        try:
+            if self.bag_lock:
+                self.bag_lock.acquire()
+
+            topic, msg, ts = self.__next_round_robin_topic(topic=topic, msg=msg, ts=ts)
+            if topic and msg and ts:
+                self.__write_ros_msg_to_bag(topic=topic, msg=msg, ts=ts, s3_client=s3_client)
+
+            sensor_topics = [k for k in self.topic_active.keys() if k != self.bus_topic and self.__is_topic_alive(k)]
+            if (len(self.round_robin) >= len(sensor_topics)) and self.round_robin:
+                self.round_robin.pop(0)
+            
+        except Exception as _:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
+            raise
         finally:
             if self.bag_lock:
                 self.bag_lock.release()
 
-    def bag_bus_data(self, manifest=None,  ros_topic=None):
+    
+    def __record_image_msg(self, ros_topic=None, image=None, image_ts=None, frame_id=None, s3_client=None):
+        try:
+            ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(image)
+            RosUtil.set_ros_msg_header( ros_msg=ros_image_msg, ts=image_ts, frame_id=frame_id)
+            self.__record_ros_msg(topic=ros_topic, msg=ros_image_msg, ts=ros_image_msg.header.stamp, s3_client=s3_client)
+            self.__topic_sleep(ros_topic=ros_topic)
+        except BaseException as _:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
 
-        self.bus_topic = ros_topic
+    def __get_camera_info(self, sensor=None):
+        cam_name = sensor.rsplit("/", 1)[1]
+        # get parameters from calibration json 
+       
+        intr_mat_undist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrix'])
+        intr_mat_dist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrixOriginal'])
+        dist_parms = np.asarray(self.cal_json['cameras'][cam_name]['Distortion'])
+        lens = self.cal_json['cameras'][cam_name]['Lens']
+
+        return lens, dist_parms, intr_mat_dist, intr_mat_undist
+
+    def __read_images_from_fs(self, files=None, image_reader=None, image_data=None, image_ts=None):
+
+        image_reader.clear() 
+        image_data.clear()
+        image_ts.clear()
+
+        idx = 0
+        for f in files:
+            if self.data_store['input'] == 'fsx':
+                img_path = f[1]
+                image_reader[idx] = threading.Thread(target=self.__fsx_read_image, 
+                        kwargs={"id": idx, "img_path": img_path, "image_data": image_data})
+            elif self.data_store['input'] == 'efs':
+                img_path = f[1]
+                image_reader[idx] = threading.Thread(target=self.__efs_read_image, 
+                            kwargs={"id": idx, "img_path": img_path, "image_data": image_data})
+
+            image_reader[idx].start()
+            image_ts[idx]= int(f[2])
+            idx += 1
+
+        return idx
+
+
+    def __record_images_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+
+        image_reader = dict()
+        image_data = dict() 
+        image_ts = dict()
+
+        image_request = self.request.get("image", "original")
+        if image_request == "undistorted":
+            lens, dist_parms, intr_mat_dist, intr_mat_undist = self.__get_camera_info(sensor=sensor)
         
+        while True:
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
+            if not files:
+                break
+
+            count = self.__read_images_from_fs(files=files, image_reader=image_reader, image_data=image_data, image_ts=image_ts)
+        
+            for i in range(0, count):
+                image_reader[i].join()
+                if image_request == "undistorted":
+                    image = RosUtil.undistort_image(image=image_data[i], lens=lens, dist_parms=dist_parms, 
+                        intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
+                else:
+                    image = image_data[i]
+                self.__record_image_msg(ros_topic=ros_topic, image=image, image_ts=image_ts[i], frame_id=frame_id)
+
+            if self.request['preview']:
+                break
+
+        self.topic_active[ros_topic] = False
+
+    def __process_s3_image_files(self, ros_topic=None, files=None, resp=None, 
+                                frame_id=None,  s3_client=None, image_request=None, lens=None, 
+                                dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
+        for f in files:
+            try:
+                path = resp.get(block=True).split(" ", 1)[0]
+                image_data = cv2.imread(path)
+                if image_request == "undistorted":
+                    image = RosUtil.undistort_image(image_data, lens=lens, dist_parms=dist_parms, 
+                                intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
+                else:
+                    image = image_data
+                image_ts = int(f[2])
+                self.__record_image_msg(ros_topic=ros_topic, image=image, image_ts=image_ts, 
+                        frame_id=frame_id, s3_client=s3_client)
+                os.remove(path)
+            except BaseException as _:
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                self.logger.error(str(exc_type))
+                self.logger.error(str(exc_value))
+
+    def __record_images_from_s3(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+
+        s3_client = get_s3_client()
+
+        req = Queue()
+        resp = Queue()
+
+        s3_reader = S3Reader(req, resp)
+        s3_reader.start()
+
+        image_request = self.request.get("image", "original")
+        lens, dist_parms, intr_mat_dist, intr_mat_undist = self.__get_camera_info(sensor=sensor) if image_request == "undistorted" else (None, None, None, None)
+
+        while True:
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
+            if not files:
+                break
+
+            for f in files:
+                bucket = f[0]
+                key = f[1]
+                req.put(bucket+" "+key)
+
+            self.__process_s3_image_files(ros_topic=ros_topic, files=files, resp=resp, frame_id=frame_id, 
+                            s3_client=s3_client, image_request=image_request, 
+                            lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist)
+
+            if self.request['preview']:
+                break
+
+        req.put("__close__")
+        s3_reader.join(timeout=2)
+        if s3_reader.is_alive():
+            s3_reader.terminate()
+        
+        self.topic_active[ros_topic] = False
+
+    def __record_pcl_msg(self, ros_topic=None, points=None, reflectance=None, pcl_ts=None, frame_id=None, s3_client=None):
+        try:
+            ros_pcl_msg = RosUtil.pcl_dense_msg(points=points, reflectance=reflectance, ts=pcl_ts, frame_id=frame_id)
+            self.__record_ros_msg(topic=ros_topic, msg=ros_pcl_msg, ts=ros_pcl_msg.header.stamp, s3_client=s3_client)
+            self.__topic_sleep(ros_topic=ros_topic)
+        except BaseException as _:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
+
+
+    def __sensor_to_vehicle_matrix(self, sensor):
+        cam_name = sensor.rsplit("/", 1)[1]
+        return transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])
+       
+    def __process_s3_pcl_files(self, ros_topic=None, files=None, resp=None, 
+                                frame_id=None, s3_client=None,
+                                lidar_view=None, vehicle_transform_matrix=None):
+        for f in files:
+            try:
+                path = resp.get(block=True).split(" ", 1)[0]
+                npz = np.load(path)
+                pcl_ts= int(f[2])
+                points, reflectance = RosUtil.parse_pcl_npz(npz=npz, lidar_view=lidar_view, 
+                        vehicle_transform_matrix=vehicle_transform_matrix)
+                if not np.isnan(points).any():
+                    self.__record_pcl_msg(ros_topic=ros_topic, points=points, reflectance=reflectance, 
+                        pcl_ts=pcl_ts, frame_id=frame_id, s3_client=s3_client)
+                os.remove(path)
+            except BaseException as _:
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                self.logger.error(str(exc_type))
+                self.logger.error(str(exc_value))
+        
+    def __record_pcl_from_s3(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+
+        s3_client = get_s3_client()
+
+        req = Queue()
+        resp = Queue()
+
+        s3_reader = S3Reader(req, resp)
+        s3_reader.start()
+
+        lidar_view = self.request.get("lidar_view", "camera")
+        vehicle_transform_matrix = self.__sensor_to_vehicle_matrix(sensor=sensor) if lidar_view == "vehicle" else None
+        
+        while True:
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
+            if not files:
+                break
+
+            for f in files:
+                bucket = f[0]
+                key = f[1]
+                req.put(bucket+" "+key)
+
+            self.__process_s3_pcl_files(ros_topic=ros_topic, 
+                    files=files, resp=resp, frame_id=frame_id, s3_client=s3_client,
+                    lidar_view=lidar_view, vehicle_transform_matrix=vehicle_transform_matrix)
+
+            if self.request['preview']:
+                break
+
+        req.put("__close__")
+        s3_reader.join(timeout=2)
+        if s3_reader.is_alive():
+            s3_reader.terminate()
+
+        self.topic_active[ros_topic] = False
+
+    def __read_pcl_from_fs(self, files, pcl_reader, pcl_ts, npz ):
+        pcl_reader.clear()
+        pcl_ts.clear()
+        npz.clear() 
+
+        idx = 0
+        for f in files:
+            if self.data_store['input'] == 'fsx':
+                pcl_path = f[1]
+                pcl_reader[idx] = threading.Thread(target=self.__fsx_read_pcl_npz, 
+                            kwargs={"id": idx, "pcl_path": pcl_path, "npz": npz})
+            elif self.data_store['input'] == 'efs':
+                pcl_path = f[1]
+                pcl_reader[idx] = threading.Thread(target=self.__efs_read_pcl_npz, 
+                            kwargs={"id": idx, "pcl_path": pcl_path, "npz": npz})
+
+            pcl_reader[idx].start()
+            pcl_ts[idx]= int(f[2])
+            idx += 1
+        
+        return idx
+
+    def __record_pcl_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+
+        pcl_reader = dict() 
+        pcl_ts = dict()
+        npz = dict()
+        
+        lidar_view = self.request.get("lidar_view", "camera")
+        vehicle_transform_matrix = self.__sensor_to_vehicle_matrix(sensor=sensor) if lidar_view == "vehicle" else None
+        
+        while True:
+            files = None
+            while not files and manifest.is_open():
+                files = manifest.fetch()
+            if not files:
+                break
+
+            count = self.__read_pcl_from_fs(files, pcl_reader, pcl_ts, npz)
+            for i in range(0, count):
+                pcl_reader[i].join()
+                points, reflectance = RosUtil.parse_pcl_npz(npz=npz[i], lidar_view=lidar_view, 
+                    vehicle_transform_matrix=vehicle_transform_matrix)
+                if not np.isnan(points).any():
+                    self.__record_pcl_msg(ros_topic=ros_topic, points=points, reflectance=reflectance, 
+                        pcl_ts=pcl_ts[i], frame_id=frame_id)
+
+            if self.request['preview']:
+                break
+
+        self.topic_active[ros_topic] = False
+
+    def __reecord_images(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+        if self.data_store['input'] != 's3':
+            self.__record_images_from_fs(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+        else:
+            self.__record_images_from_s3(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+
+    def __record_pcl(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+        if self.data_store['input'] != 's3':
+            self.__record_pcl_from_fs(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+        else:
+            self.__record_pcl_from_s3(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+
+    def __record_bus(self, manifest=None,  ros_topic=None, frame_id=None):
+
+        self.bus_topic = ros_topic 
         while True:
             rows = None
             while not rows and manifest.is_open():
@@ -347,287 +618,33 @@ class RosbagProducer(Process):
         
             for row in rows:
                 try:
-                    ros_msg = bus_msg(row)
-                    self.write_bag(ros_topic, ros_msg, ros_msg.header.stamp)
-                    if self.bag_lock:
-                        factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
-                except BaseException as e:
-                    self.logger.error("bag bus error: " + str(e))
+                    ros_msg = RosUtil.bus_msg(row=row, frame_id=frame_id)
+                    self.__record_ros_msg(topic=ros_topic, msg=ros_msg, ts=ros_msg.header.stamp)
+                    self.__topic_sleep(ros_topic=ros_topic)
+                except BaseException as _:
+                    exc_type, exc_value, exc_traceback = sys.exc_info()
+                    traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                    self.logger.error(str(exc_type))
+                    self.logger.error(str(exc_value))
 
             if self.request['preview']:
                 break
         
         self.topic_active[ros_topic] = False
 
-    def s3_bag_images(self, manifest=None,  ros_topic=None, sensor=None):
-
-        s3_client = get_s3_client()
-
-        req = Queue()
-        resp = Queue()
-
-        s3_reader = S3Reader(req, resp)
-        s3_reader.start()
-
-        cam_name = sensor.rsplit("/", 1)[1]
-        # get parameters from calibration json 
-        _image_request = self.request.get("image", "original")
-
-        if _image_request == "undistorted":
-            intr_mat_undist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrix'])
-            intr_mat_dist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrixOriginal'])
-            dist_parms = np.asarray(self.cal_json['cameras'][cam_name]['Distortion'])
-            lens = self.cal_json['cameras'][cam_name]['Lens']
-
-        while True:
-            files = None
-            while not files and manifest.is_open():
-                files = manifest.fetch()
-            if not files:
-                break
-
-            for f in files:
-                bucket = f[0]
-                key = f[1]
-                req.put(bucket+" "+key)
-
-            for f in files:
-                try:
-                    path = resp.get(block=True).split(" ", 1)[0]
-                    image_data = cv2.imread(path)
-                    _image = RosbagProducer.undistort_image(image_data, lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data
-                    image_ts = int(f[2])
-                    ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
-                    _stamp = divmod(image_ts, 1000000 ) #stamp in micro secs
-                    ros_image_msg.header.stamp.secs = _stamp[0] # secs
-                    ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
-                    self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp, s3_client=s3_client)
-                    os.remove(path)
-                    if self.bag_lock:
-                        factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
-                except BaseException as e:
-                    self.logger.error("bag image error: " + str(e))
-
-            if self.request['preview']:
-                break
-
-        req.put("__close__")
-        s3_reader.join(timeout=2)
-        if s3_reader.is_alive():
-            s3_reader.terminate()
-        
-        self.topic_active[ros_topic] = False
-
-    def bag_images(self, manifest=None,  ros_topic=None, sensor=None):
-
-        if self.data_store['input'] == 's3':
-            self.s3_bag_images(manifest=manifest, ros_topic=ros_topic)
-            return
-
-        image_data = dict() 
-        image_reader = dict() 
-        image_ts = dict()
-
-        cam_name = sensor.rsplit("/", 1)[1]
-        # get parameters from calibration json 
-        _image_request = self.request.get("image", "original")
-        if _image_request == "undistorted":
-            intr_mat_undist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrix'])
-            intr_mat_dist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrixOriginal'])
-            dist_parms = np.asarray(self.cal_json['cameras'][cam_name]['Distortion'])
-            lens = self.cal_json['cameras'][cam_name]['Lens']
-        
-        while True:
-            files = None
-            while not files and manifest.is_open():
-                files = manifest.fetch()
-            if not files:
-                break
-
-            image_data.clear()
-            image_reader.clear() 
-            image_ts.clear()
-
-            idx = 0
-            for f in files:
-                if self.data_store['input'] == 'fsx':
-                    img_path = f[1]
-                    image_reader[idx] = threading.Thread(target=self.fsx_read_image, 
-                            kwargs={"id": idx, "img_path": img_path, "image_data": image_data})
-                elif self.data_store['input'] == 'efs':
-                    img_path = f[1]
-                    image_reader[idx] = threading.Thread(target=self.efs_read_image, 
-                            kwargs={"id": idx, "img_path": img_path, "image_data": image_data})
-
-                image_reader[idx].start()
-                image_ts[idx]= int(f[2])
-                idx += 1
-
-            count = idx
-        
-            for i in range(0, count):
-                image_reader[i].join()
-                try:
-                    _image = RosbagProducer.undistort_image(image_data[i], lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) if _image_request == "undistorted" else image_data[i]
-                    ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(_image)
-                    _stamp = divmod(image_ts[i], 1000000 ) #stamp in micro secs
-                    ros_image_msg.header.stamp.secs = _stamp[0] # secs
-                    ros_image_msg.header.stamp.nsecs = _stamp[1]*1000 # nano secs
-                    self.write_bag(ros_topic, ros_image_msg, ros_image_msg.header.stamp)
-                    if self.bag_lock:
-                        factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
-                except BaseException as e:
-                    self.logger.error("bag image error: " + str(e))
-
-            if self.request['preview']:
-                break
-
-        self.topic_active[ros_topic] = False
-
-    def s3_bag_pcl(self, manifest=None,  ros_topic=None, sensor=None):
-
-        s3_client = get_s3_client()
-
-        req = Queue()
-        resp = Queue()
-
-        s3_reader = S3Reader(req, resp)
-        s3_reader.start()
-
-        cam_name = sensor.rsplit("/", 1)[1]
-        _lidar_view = self.request.get("lidar_view", "camera")
-        vehicle_transform_matrix = transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])  if _lidar_view == "vehicle" else None
-        
-        while True:
-            files = None
-            while not files and manifest.is_open():
-                files = manifest.fetch()
-            if not files:
-                break
-
-            for f in files:
-                bucket = f[0]
-                key = f[1]
-                req.put(bucket+" "+key)
-
-            for f in files:
-                try:
-                    path = resp.get(block=True).split(" ", 1)[0]
-                    npz = np.load(path)
-                    pcl_ts= int(f[2])
-                    _reflectance = npz["pcloud_attr.reflectance"]
-                    if _lidar_view == "vehicle":
-                        points_trans = RosbagProducer.project_lidar_from_to(points=npz["pcloud_points"], trans=vehicle_transform_matrix)
-                        _points = points_trans[:,0:3]
-                        if np.isnan(_points).any():
-                            self.logger.info("Transformed lidar points contain NaN; skipping")
-                            continue
-                    else:
-                        _points = npz["pcloud_points"]
-                    ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts,frame_id="map")
-                    self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp, s3_client=s3_client)
-                    os.remove(path)
-                    if self.bag_lock:
-                        factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
-                except BaseException as e:
-                    self.logger.error("bag point-cloud error: " + str(e))
-
-            if self.request['preview']:
-                break
-
-        req.put("__close__")
-        s3_reader.join(timeout=2)
-        if s3_reader.is_alive():
-            s3_reader.terminate()
-
-        self.topic_active[ros_topic] = False
-
-    def bag_pcl(self, manifest=None,  ros_topic=None, sensor=None):
-
-        if self.data_store['input'] == 's3':
-            self.s3_bag_pcl(manifest=manifest, ros_topic=ros_topic, sensor=None)
-            return
-
-        pcl_reader = dict() 
-        pcl_ts = dict()
-        npz = dict()
-        
-        cam_name = sensor.rsplit("/", 1)[1]
-        _lidar_view = self.request.get("lidar_view", "camera")
-        vehicle_transform_matrix = transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])  if _lidar_view == "vehicle"  else None
-       
-        while True:
-            files = None
-            while not files and manifest.is_open():
-                files = manifest.fetch()
-            if not files:
-                break
-
-            pcl_reader.clear()
-            pcl_ts.clear()
-            npz.clear() 
-
-            idx = 0
-            for f in files:
-                if self.data_store['input'] == 'fsx':
-                    pcl_path = f[1]
-                    pcl_reader[idx] = threading.Thread(target=self.fsx_read_pcl, 
-                            kwargs={"id": idx, "pcl_path": pcl_path, 
-                                    "npz": npz})
-                elif self.data_store['input'] == 'efs':
-                    pcl_path = f[1]
-                    pcl_reader[idx] = threading.Thread(target=self.efs_read_pcl, 
-                            kwargs={"id": idx, "pcl_path": pcl_path, 
-                                    "npz": npz})
-
-                pcl_reader[idx].start()
-                pcl_ts[idx]= int(f[2])
-                idx += 1
-
-            count = idx
-            for i in range(0, count):
-                pcl_reader[i].join()
-                try:
-                    _reflectance = npz[i]["pcloud_attr.reflectance"]
-                    if _lidar_view == "vehicle":
-                        points_trans = RosbagProducer.project_lidar_from_to(points=npz[i]["pcloud_points"], trans=vehicle_transform_matrix)
-                        _points = points_trans[:,0:3]
-                        if np.isnan(_points).any():
-                            self.logger.info("Transformed lidar points contain NaN; skipping")
-                            continue
-                    else:
-                        _points = npz[i]["pcloud_points"]
-                    ros_pcl_msg = ros_pcl2_dense(points=_points, reflectance=_reflectance,ts=pcl_ts[i],frame_id="map")
-                    self.write_bag(ros_topic, ros_pcl_msg, ros_pcl_msg.header.stamp)
-                    if self.bag_lock:
-                        factor = len(self.topic_dict[ros_topic]) + 1
-                        time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
-                except BaseException as e:
-                    self.logger.error("bag point-cloud error: " + str(e))
-
-            if self.request['preview']:
-                break
-
-        self.topic_active[ros_topic] = False
-    
-    def bag_data(self, manifest=None, data_type=None, ros_topic=None, sensor=None):
+    def __record_sensor(self, manifest=None, sensor=None, data_type=None, ros_topic=None, frame_id=None):
         try:
             if data_type ==  'sensor_msgs/Image':
-                self.bag_images(manifest=manifest, ros_topic=ros_topic, sensor=sensor)
+                self.__reecord_images(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
             elif data_type == 'sensor_msgs/PointCloud2':
-                self.bag_pcl(manifest=manifest, ros_topic=ros_topic, sensor=sensor)
+                self.__record_pcl(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
             elif data_type ==  'a2d2_msgs/Bus':
-                self.bag_bus_data(manifest=manifest, ros_topic=ros_topic)
+                self.__record_bus(manifest=manifest, ros_topic=ros_topic, frame_id=frame_id)
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
-        
 
     def run(self):
 
@@ -635,32 +652,37 @@ class RosbagProducer(Process):
             self.producer = KafkaProducer(bootstrap_servers=self.servers, 
                     client_id=random_string())
 
-            self.create_bag_dir()
+            self.__create_bag_dir()
 
             tasks = []
 
             sensors = self.request["sensor_id"]
+            sensor_topics = self.request['ros_topic']
+            sensor_data_types = self.request["data_type"]
+            sensor_frame_id = self.request.get("frame_id", dict())
+
             for s in sensors:
                 manifest = self.manifests[s]
-                data_type = self.request["data_type"][s]
-                ros_topic = self.request['ros_topic'][s]
-                t = threading.Thread(target=self.bag_data, 
+                data_type = sensor_data_types[s]
+                ros_topic = sensor_topics[s]
+                frame_id = sensor_frame_id.get(s, "map")
+                t = threading.Thread(target=self.__record_sensor, name=s,
                     kwargs={"manifest": manifest, "data_type": data_type, 
-                            "ros_topic": ros_topic,
-                            "sensor":  s})
+                            "ros_topic": ros_topic, "sensor":  s, "frame_id": frame_id})
                 tasks.append(t)
                 t.start()
+                self.logger.info("Started thread:" + t.getName())
 
             for t in tasks:
-                self.logger.info("Waiting for task:" + t.getName())
+                self.logger.info("Wait on thread:" + t.getName())
                 t.join()
-                self.logger.info("Completed task:" + t.getName())
+                self.logger.info("Thread finished:" + t.getName())
 
-            self.logger.info("Flush bag")
-            self.flush_bag()
+            self.logger.info("Flush ROS bag")
+            self.__flush_bag()
 
-            self.logger.info("Close bag")
-            self.close_bag()
+            self.logger.info("Close ROS bag")
+            self.__close_bag()
 
             json_msg = {"__close__": True} 
             resp_topic = self.request['response_topic']
