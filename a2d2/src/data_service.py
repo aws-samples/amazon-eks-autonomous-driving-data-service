@@ -28,7 +28,7 @@ import time
 
 from kafka import KafkaConsumer
 from data_response import DataResponse
-from util import random_string
+from util import random_string, validate_data_request
 
 
 class DataService(threading.Thread):
@@ -59,8 +59,8 @@ class DataService(threading.Thread):
                 try:
                     json_msg = json.loads(message.value) 
                     request = json_msg["request"]
-                    self.logger.info("recvd reuqest: {0}".format(request))
-                    self.validate_request(request)
+                    self.logger.info("recvd request: {0}".format(request))
+                    validate_data_request(request)
                     t = DataResponse(dbconfig=self.config['database'], 
                         servers=self.config["servers"], 
                         request=request, 
@@ -89,39 +89,6 @@ class DataService(threading.Thread):
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
 
-    def validate_request(self, request):
-        try:
-            self.logger.info("validating data request {0}i".format(request))
-            assert request["kafka_topic"]
-            assert request["vehicle_id"]
-            assert request["scene_id"]
-            assert request["sensor_id"]
-            assert request["accept"]
-
-            assert int(request["start_ts"]) > 0 
-            assert int(request["stop_ts"]) > int(request["start_ts"]) 
-            assert int(request["step"]) > 0
-
-            accept = request["accept"]
-            output = accept.split("/", 1)[0]
-            assert output in ["s3", "efs", "fsx"]
-            if accept.endswith("rosbag"):
-                ros_topics = request["ros_topic"]
-                data_types = request["data_type"]
-                sensors = request["sensor_id"]
-                for s in sensors:
-                    assert data_types[s]
-                    assert ros_topics[s]
-
-            self.logger.info("data request is valid")
-        except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
-            raise
-        
-        
 def main(config):
     
     tasks = [

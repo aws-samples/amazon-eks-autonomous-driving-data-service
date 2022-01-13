@@ -63,7 +63,7 @@ class DataRequest(Process):
             producer.close()
 
             t.join()
-        except Exception as e:
+        except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))

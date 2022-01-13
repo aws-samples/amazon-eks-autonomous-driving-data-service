@@ -33,10 +33,9 @@ import cv_bridge
 import rosbag
 
 from kafka import KafkaProducer
-from manifest_dataset import ManifestDataset
-from bus_dataset import BusDataset
 from util import random_string, get_s3_resource
-from util import get_s3_client, mkdir_p
+from util import get_s3_client, mkdir_p, create_manifest
+from util import read_images_from_fs, read_pcl_from_fs
 from view import transform_from_to
 from s3_reader import S3Reader
 from ros_util import RosUtil
@@ -77,7 +76,7 @@ class RosbagProducer(Process):
         self.bus_topic = None
 
         for s in sensors:
-            self.manifests[s] = self.__create_manifest(dbconfig=dbconfig, sensor_id=s)
+            self.manifests[s] = create_manifest(request=request, dbconfig=dbconfig, sensor_id=s)
             _topic = self.request['ros_topic'][s]
             self.topic_dict[_topic] = []
             self.topic_list.append(_topic)
@@ -111,56 +110,6 @@ class RosbagProducer(Process):
         cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
         cal_data = cal_obj.get()['Body'].read().decode('utf-8')
         self.cal_json = json.loads(cal_data) 
-
-    def __create_manifest(self, dbconfig=None, sensor_id=None):
-
-        if sensor_id == 'bus':
-            manifest = BusDataset(dbconfig=dbconfig, 
-                        vehicle_id=self.request["vehicle_id"],
-                        scene_id=self.request["scene_id"],
-                        start_ts=int(self.request["start_ts"]), 
-                        stop_ts=int(self.request["stop_ts"]),
-                        step=int(self.request["step"]))
-        else:
-            manifest = ManifestDataset(dbconfig=dbconfig, 
-                        vehicle_id=self.request["vehicle_id"],
-                        scene_id=self.request["scene_id"],
-                        sensor_id=sensor_id,
-                        start_ts=int(self.request["start_ts"]), 
-                        stop_ts=int(self.request["stop_ts"]),
-                        step=int(self.request["step"]))
-
-        return manifest
-
-    def __fsx_read_image(self, id=None, img_path=None, image_data=None):
-        ''' read image file from fsx file system '''
-        fsx_config = self.data_store['fsx']
-        fsx_root = fsx_config['root']
-        image_data[id] = cv2.imread(os.path.join(fsx_root, img_path))
-    
-    
-    def __fsx_read_pcl_npz(self, id=None, pcl_path=None, npz=None):
-        ''' read pcl npz file from fsx file system '''
-        fsx_config = self.data_store['fsx']
-        fsx_root = fsx_config['root']
-        pcl_path = os.path.join(fsx_root, pcl_path)
-        npz[id] =  np.load(pcl_path)
-        
-    def __efs_read_image(self, id=None, img_path=None, image_data=None):
-        ''' read image file from efs file system '''
-        efs_config = self.data_store['efs']
-        efs_root = efs_config['root']
-        image_data[id] = cv2.imread(os.path.join(efs_root, img_path))
-    
-    
-    def __efs_read_pcl_npz(self, id=None, pcl_path=None, npz=None):
-        ''' read pcl npz file from efs file system '''
-        efs_config = self.data_store['efs']
-        efs_root = efs_config['root']
-        pcl_path = os.path.join(efs_root, pcl_path)
-        npz[id] =  np.load(pcl_path)
-
-    
 
     def __create_bag_dir(self):
         if self.accept.startswith('s3/'):
@@ -349,29 +298,6 @@ class RosbagProducer(Process):
 
         return lens, dist_parms, intr_mat_dist, intr_mat_undist
 
-    def __read_images_from_fs(self, files=None, image_reader=None, image_data=None, image_ts=None):
-
-        image_reader.clear() 
-        image_data.clear()
-        image_ts.clear()
-
-        idx = 0
-        for f in files:
-            if self.data_store['input'] == 'fsx':
-                img_path = f[1]
-                image_reader[idx] = threading.Thread(target=self.__fsx_read_image, 
-                        kwargs={"id": idx, "img_path": img_path, "image_data": image_data})
-            elif self.data_store['input'] == 'efs':
-                img_path = f[1]
-                image_reader[idx] = threading.Thread(target=self.__efs_read_image, 
-                            kwargs={"id": idx, "img_path": img_path, "image_data": image_data})
-
-            image_reader[idx].start()
-            image_ts[idx]= int(f[2])
-            idx += 1
-
-        return idx
-
 
     def __record_images_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
 
@@ -390,7 +316,8 @@ class RosbagProducer(Process):
             if not files:
                 break
 
-            count = self.__read_images_from_fs(files=files, image_reader=image_reader, image_data=image_data, image_ts=image_ts)
+            count = read_images_from_fs(data_store=self.data_store, files=files, image_reader=image_reader, 
+                image_data=image_data, image_ts=image_ts)
         
             for i in range(0, count):
                 image_reader[i].join()
@@ -542,28 +469,6 @@ class RosbagProducer(Process):
 
         self.topic_active[ros_topic] = False
 
-    def __read_pcl_from_fs(self, files, pcl_reader, pcl_ts, npz ):
-        pcl_reader.clear()
-        pcl_ts.clear()
-        npz.clear() 
-
-        idx = 0
-        for f in files:
-            if self.data_store['input'] == 'fsx':
-                pcl_path = f[1]
-                pcl_reader[idx] = threading.Thread(target=self.__fsx_read_pcl_npz, 
-                            kwargs={"id": idx, "pcl_path": pcl_path, "npz": npz})
-            elif self.data_store['input'] == 'efs':
-                pcl_path = f[1]
-                pcl_reader[idx] = threading.Thread(target=self.__efs_read_pcl_npz, 
-                            kwargs={"id": idx, "pcl_path": pcl_path, "npz": npz})
-
-            pcl_reader[idx].start()
-            pcl_ts[idx]= int(f[2])
-            idx += 1
-        
-        return idx
-
     def __record_pcl_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
 
         pcl_reader = dict() 
@@ -580,7 +485,8 @@ class RosbagProducer(Process):
             if not files:
                 break
 
-            count = self.__read_pcl_from_fs(files, pcl_reader, pcl_ts, npz)
+            count = read_pcl_from_fs(data_store=self.data_store, files=files, 
+                pcl_reader=pcl_reader, pcl_ts=pcl_ts, npz=npz)
             for i in range(0, count):
                 pcl_reader[i].join()
                 points, reflectance = RosUtil.parse_pcl_npz(npz=npz[i], lidar_view=lidar_view, 

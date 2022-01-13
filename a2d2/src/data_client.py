@@ -22,6 +22,7 @@ from __future__ import unicode_literals
 import sys, traceback
 import logging
 from data_request import DataRequest
+from util import validate_data_request
 import json
 
 class DataClient():
@@ -32,7 +33,6 @@ class DataClient():
             level=logging.INFO)
         self.logger = logging.getLogger("data_client")
 
-        self.validate_requests()
         
     def request_data(self):
 
@@ -42,6 +42,8 @@ class DataClient():
             requests = self.config["requests"]
             use_time = config.get("use_time", "received")
             for request in requests:
+                self.logger.info("validating data request {0}".format(request))
+                validate_data_request(request)
                 t = DataRequest(servers=self.config["servers"], request=request, use_time=use_time)
                 tasks.append(t)
                 t.start()
@@ -54,38 +56,6 @@ class DataClient():
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
-
-    def validate_requests(self):
-        try:
-            self.logger.info("validating data requests")
-            requests = self.config["requests"]
-            for request in requests:
-                assert request["kafka_topic"]
-                assert request["vehicle_id"]
-                assert request["scene_id"]
-                assert request["sensor_id"]
-                assert request["accept"]
-
-                assert int(request["start_ts"]) > 0 
-                assert int(request["stop_ts"]) > int(request["start_ts"]) 
-                assert int(request["step"]) > 0
-
-                accept = request["accept"]
-                if accept.endswith("rosbag") or accept.endswith("rosmsg"):
-                    ros_topics = request["ros_topic"]
-                    data_types = request["data_type"]
-                    sensors = request["sensor_id"]
-                    for s in sensors:
-                        assert data_types[s]
-                        assert ros_topics[s]
-
-        except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
-            raise
-
 
 def main(config):
     
