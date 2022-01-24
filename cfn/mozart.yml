@@ -286,25 +286,25 @@ Mappings:
       AMI: ami-07fdae2b415bf7289
   noetic:
     us-east-1:
-      AMI: ami-0ae1f7f35ab8e62d5
+      AMI: ami-0514b4bd87dba7384
     us-east-2:
-      AMI: ami-03f303841bd6a29a1 
+      AMI: ami-05117a5348bb8a291s 
     us-west-2:
-      AMI: ami-0f3c35b05efbfddc5
+      AMI: ami-0f09d704ce46e6a2b
     eu-west-1:
-      AMI: ami-0cfe5ef9b434761cc 
+      AMI: ami-03c13f269af7966ed 
     eu-central-1:
-      AMI: ami-06dfd20486641ec12 
+      AMI: ami-0bcce4ca0396fb05b 
     ap-southeast-1:
-      AMI: ami-034dd6aa5e93cb979 
+      AMI: ami-0fc6c5e9cea99b19a 
     ap-southeast-2:
-      AMI: ami-01e8441fe5daa337a 
+      AMI: ami-027f8e873ea62233a
     ap-south-1:
-      AMI: ami-028da443e134b96f1 
+      AMI: ami-095fd2eba69d252b2 
     ap-northeast-1:
-      AMI: ami-0bd4b16045f558294
+      AMI: ami-05704132ab024395d
     ap-northeast-2:
-      AMI: ami-0a9a69718358da747
+      AMI: ami-0944342c546cdb378
 
 Resources:
   Vpc:
