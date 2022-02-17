@@ -187,7 +187,7 @@ Parameters:
     Description: >-
      EC2 instance type for desktop.
     Type: String
-    Default: g3s.xlarge
+    Default: g4dn.xlarge
     AllowedValues:
       - m5n.xlarge
       - m5n.2xlarge
@@ -1921,11 +1921,28 @@ Resources:
               export DEBIAN_FRONTEND=noninteractive
               export DEBCONF_NONINTERACTIVE_SEEN=true
 
-              # check if we have a GPU and if Nvidia drivers need to be installed
-              [[ ! -x "$(command -v nvidia-smi)" ]] && apt update && apt -y upgrade && \
-                apt -y install ubuntu-drivers-common && \
+              # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
+              [[ ! -x "$(command -v nvidia-smi)" ]] && \
+                apt-get update && apt-get -y upgrade && \
+                apt-get -y install ubuntu-drivers-common && \
                 [[ ! -z "$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')" ]] && \
-                ubuntu-drivers autoinstall && reboot
+                apt-get -y install linux-headers-$(uname -r) && \
+                ( ( [[ $VERSION == "18.04" ]] &&
+                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/cuda-ubuntu1804.pin && \
+                    mv cuda-ubuntu1804.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
+                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/ /" ) || \
+                  ( [[ $VERSION == "20.04" ]] && \
+                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
+                    mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub && \
+                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" ) ) && \
+                apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y autoremove && \
+                apt-get -y install cuda && \
+                apt-get -y install nvidia-cuda-toolkit && \
+                apt-get -y install libcudnn8 && \
+                apt-get -y install libcudnn8-dev && \
+                reboot
 
               # setup software repo for docker
               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
