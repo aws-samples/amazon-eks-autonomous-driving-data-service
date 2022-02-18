@@ -49,6 +49,15 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
     $DIR/a2d2/charts/a2d2-data-service/values.yaml
 
+# update helm charts values.ymal and example client config files
+sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
+    -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
+    -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
+    -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
+    -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
+    -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
+    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
+    
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
         $DIR/a2d2/config/c-config-ex1.json
                   

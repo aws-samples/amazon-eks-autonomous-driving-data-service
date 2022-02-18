@@ -95,19 +95,22 @@ def mkdir_p(path):
             raise
 
 def validate_data_request(request):
-    assert request["kafka_topic"]
+    assert request["accept"]
+    accept = request["accept"]
+
+    if accept != "rosmsg":
+        assert request["kafka_topic"]
+        if "rosbag" in accept:
+            output = accept.split("/", 1)[0]
+            assert output in ["s3", "efs", "fsx"]
+
     assert request["vehicle_id"]
     assert request["scene_id"]
     assert request["sensor_id"]
-    assert request["accept"]
-
+    
     assert int(request["start_ts"]) > 0 
     assert int(request["stop_ts"]) > int(request["start_ts"]) 
     assert int(request["step"]) > 0
-
-    accept = request["accept"]
-    output = accept.split("/", 1)[0]
-    assert output in ["s3", "efs", "fsx"]
 
     if "ros" in accept:
         ros_topics = request["ros_topic"]
