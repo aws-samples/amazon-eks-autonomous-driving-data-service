@@ -249,7 +249,7 @@ Parameters:
   FargateComputeType:
     Description: Fargate compute type
     Type: String
-    Default: "FARGATE_SPOT"
+    Default: "FARGATE"
     AllowedValues:
       - "FARGATE_SPOT"
       - "FARGATE"
@@ -286,25 +286,25 @@ Mappings:
       AMI: ami-07fdae2b415bf7289
   noetic:
     us-east-1:
-      AMI: ami-0514b4bd87dba7384
+      AMI: ami-0541529ba25fbb39d
     us-east-2:
-      AMI: ami-05117a5348bb8a291
+      AMI: ami-01067d50d117edc0b
     us-west-2:
-      AMI: ami-0f09d704ce46e6a2b
+      AMI: ami-043a92adc1231220f
     eu-west-1:
-      AMI: ami-03c13f269af7966ed 
+      AMI: ami-020fa1e8e2e0b3039
     eu-central-1:
-      AMI: ami-0bcce4ca0396fb05b 
+      AMI: ami-0bb988b09a59bfa9f
     ap-southeast-1:
-      AMI: ami-0fc6c5e9cea99b19a 
+      AMI: ami-031a9a529b82d10b0
     ap-southeast-2:
-      AMI: ami-027f8e873ea62233a
+      AMI: ami-016d38ca96f5a0545
     ap-south-1:
-      AMI: ami-095fd2eba69d252b2 
+      AMI: ami-0160777edd81cf143
     ap-northeast-1:
-      AMI: ami-05704132ab024395d
+      AMI: ami-092dbeb031597615b
     ap-northeast-2:
-      AMI: ami-0944342c546cdb378
+      AMI: ami-09ea29d8a468c7774
 
 Resources:
   Vpc:
@@ -505,7 +505,7 @@ Resources:
     Type: 'AWS::EC2::Route'
     Properties:
       RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: "192.168.0.0/23"
+      DestinationCidrBlock: "192.168.0.0/22"
       VpcPeeringConnectionId: !Ref BatchFargateVpcPeering
 
   PrivateSubnet1RouteAssociation:
@@ -1248,7 +1248,7 @@ Resources:
   BatchFargateVpc:
     Type: 'AWS::EC2::VPC'
     Properties:
-      CidrBlock: "192.168.0.0/23"
+      CidrBlock: "192.168.0.0/22"
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
@@ -1306,15 +1306,6 @@ Resources:
       SubnetId: !Ref BatchFargatePublicSubnet
       RouteTableId: !Ref BatchFargatePublicRouteTable
 
-  BatchFargatePrivateSubnet:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      VpcId: !Ref BatchFargateVpc
-      AvailabilityZone: 
-        Fn::Select: 
-          - 0
-          - Fn::GetAZs: ""
-      CidrBlock: "192.168.1.0/24"
   BatchFargateNATGatewayEIP:
     Type: 'AWS::EC2::EIP'
     Properties:
@@ -1342,7 +1333,7 @@ Resources:
       RouteTableId: !Ref BatchFargatePrivateRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref BatchFargateNATGateway
-  
+
   BatchFargatePrivatePeeringRoute:
     Type: 'AWS::EC2::Route'
     Properties:
@@ -1350,14 +1341,57 @@ Resources:
       DestinationCidrBlock: !Ref VpcCIDR
       VpcPeeringConnectionId: !Ref BatchFargateVpcPeering
 
-  BatchFargatePrivateSubnetRouteAssociation:
+  BatchFargatePrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      AvailabilityZone: 
+        Fn::Select: 
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: "192.168.1.0/24"
+
+  BatchFargatePrivateSubnet1RouteAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     DependsOn: [ BatchFargatePrivateRoute ]
     Properties:
-      SubnetId: !Ref BatchFargatePrivateSubnet
+      SubnetId: !Ref BatchFargatePrivateSubnet1
       RouteTableId: !Ref BatchFargatePrivateRouteTable
   
-  
+  BatchFargatePrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      AvailabilityZone: 
+        Fn::Select: 
+          - 1
+          - Fn::GetAZs: ""
+      CidrBlock: "192.168.2.0/24"
+
+  BatchFargatePrivateSubnet2RouteAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn: [ BatchFargatePrivateRoute ]
+    Properties:
+      SubnetId: !Ref BatchFargatePrivateSubnet2
+      RouteTableId: !Ref BatchFargatePrivateRouteTable
+
+
+  BatchFargatePrivateSubnet3:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref BatchFargateVpc
+      AvailabilityZone: 
+        Fn::Select: 
+          - 2
+          - Fn::GetAZs: ""
+      CidrBlock: "192.168.3.0/24"
+
+  BatchFargatePrivateSubnet3RouteAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    DependsOn: [ BatchFargatePrivateRoute ]
+    Properties:
+      SubnetId: !Ref BatchFargatePrivateSubnet3
+      RouteTableId: !Ref BatchFargatePrivateRouteTable
 
   BatchFargateSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -1390,7 +1424,9 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       SubnetIds:
-        - Ref: BatchFargatePrivateSubnet
+        - Ref: BatchFargatePrivateSubnet1
+        - Ref: BatchFargatePrivateSubnet2
+        - Ref: BatchFargatePrivateSubnet3
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
@@ -1406,7 +1442,9 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       SubnetIds:
-        - Ref: BatchFargatePrivateSubnet
+        - Ref: BatchFargatePrivateSubnet1
+        - Ref: BatchFargatePrivateSubnet2
+        - Ref: BatchFargatePrivateSubnet3
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
@@ -1422,7 +1460,9 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       SubnetIds:
-        - Ref: BatchFargatePrivateSubnet
+        - Ref: BatchFargatePrivateSubnet1
+        - Ref: BatchFargatePrivateSubnet2
+        - Ref: BatchFargatePrivateSubnet3
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
@@ -1438,7 +1478,9 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       SubnetIds:
-        - Ref: BatchFargatePrivateSubnet
+        - Ref: BatchFargatePrivateSubnet1
+        - Ref: BatchFargatePrivateSubnet2
+        - Ref: BatchFargatePrivateSubnet3
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
@@ -1454,7 +1496,9 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       SubnetIds:
-        - Ref: BatchFargatePrivateSubnet
+        - Ref: BatchFargatePrivateSubnet1
+        - Ref: BatchFargatePrivateSubnet2
+        - Ref: BatchFargatePrivateSubnet3
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
@@ -1470,7 +1514,9 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       SubnetIds:
-        - Ref: BatchFargatePrivateSubnet
+        - Ref: BatchFargatePrivateSubnet1
+        - Ref: BatchFargatePrivateSubnet2
+        - Ref: BatchFargatePrivateSubnet3
       PolicyDocument: 
         Version: 2012-10-17
         Statement: 
@@ -1499,12 +1545,37 @@ Resources:
     Type: AWS::EFS::AccessPoint
     Properties: 
       FileSystemId: !Ref BatchFargateEfsFileSystem
-  BatchFargateMountTarget:
+
+  BatchFargateMountTarget1:
     Type: 'AWS::EFS::MountTarget'
-    DependsOn: [ BatchFargatePrivateSubnetRouteAssociation, BatchFargateSecurityGroupIngress ]
+    DependsOn: 
+      - BatchFargatePrivateSubnet1RouteAssociation
+      - BatchFargateSecurityGroupIngress
     Properties:
       FileSystemId:  !Ref BatchFargateEfsFileSystem
-      SubnetId: !Ref BatchFargatePrivateSubnet
+      SubnetId: !Ref BatchFargatePrivateSubnet1
+      SecurityGroups:
+        - !Ref BatchFargateSecurityGroup
+  
+  BatchFargateMountTarget2:
+    Type: 'AWS::EFS::MountTarget'
+    DependsOn: 
+      - BatchFargatePrivateSubnet2RouteAssociation
+      - BatchFargateSecurityGroupIngress
+    Properties:
+      FileSystemId:  !Ref BatchFargateEfsFileSystem
+      SubnetId: !Ref BatchFargatePrivateSubnet2
+      SecurityGroups:
+        - !Ref BatchFargateSecurityGroup
+
+  BatchFargateMountTarget3:
+    Type: 'AWS::EFS::MountTarget'
+    DependsOn: 
+      - BatchFargatePrivateSubnet3RouteAssociation
+      - BatchFargateSecurityGroupIngress
+    Properties:
+      FileSystemId:  !Ref BatchFargateEfsFileSystem
+      SubnetId: !Ref BatchFargatePrivateSubnet3
       SecurityGroups:
         - !Ref BatchFargateSecurityGroup
 
@@ -1662,7 +1733,9 @@ Resources:
         Type: !Ref FargateComputeType
         MaxvCpus: !Ref FargateComputeMax
         Subnets: 
-          - !Ref BatchFargatePrivateSubnet
+          - !Ref BatchFargatePrivateSubnet1
+          - !Ref BatchFargatePrivateSubnet2
+          - !Ref BatchFargatePrivateSubnet3
         SecurityGroupIds:
           - !GetAtt BatchFargateSecurityGroup.GroupId
 
@@ -1970,6 +2043,17 @@ Resources:
               if [ ! -x "$(command -v docker)" ]; then
                 apt install -y docker-ce docker-ce-cli containerd.io      
                 usermod -aG docker ubuntu
+
+                # install nvidia container toolkit if we have a nvidia GPU
+                if [[ -x "$(command -v nvidia-smi)" ]]
+                then
+                  curl -s -L https://nvidia.github.io/nvidia-container-runtime/gpgkey |  apt-key add -
+                  distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+                  curl -s -L https://nvidia.github.io/nvidia-container-runtime/$distribution/nvidia-container-runtime.list | \
+                    tee /etc/apt/sources.list.d/nvidia-container-runtime.list
+                  apt-get update
+                  apt-get -y install nvidia-container-toolkit
+                fi
               fi
 
               apt install -y tzdata
