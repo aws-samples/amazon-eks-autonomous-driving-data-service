@@ -46,8 +46,7 @@ class Qmsg:
         self.ts = ts
 
 class RosbagProducer(Process):
-
-    SLEEP_INTERVAL = .000001 # seconds
+    BUS_DATA_TYPE = 'a2d2_msgs/Bus'
 
     def __init__(self, dbconfig=None, servers=None,
                 request=None, data_store=None, calibration=None):
@@ -68,19 +67,17 @@ class RosbagProducer(Process):
 
         self.manifests = dict() 
         sensors = self.request['sensor_id']
-        self.topic_dict = dict()
-        self.topic_list = list()
-        self.topic_active = dict()
-        self.topic_index = 0
+        self.sensor_dict = dict()
+        self.sensor_list = list()
+        self.sensor_active = dict()
+        self.sensor_index = 0
         self.round_robin = list()
-        self.bus_topic = None
 
-        for s in sensors:
-            self.manifests[s] = create_manifest(request=request, dbconfig=dbconfig, sensor_id=s)
-            _topic = self.request['ros_topic'][s]
-            self.topic_dict[_topic] = []
-            self.topic_list.append(_topic)
-            self.topic_active[_topic] = True
+        for sensor in sensors:
+            self.manifests[sensor] = create_manifest(request=request, dbconfig=dbconfig, sensor_id=sensor)
+            self.sensor_dict[sensor] = []
+            self.sensor_list.append(sensor)
+            self.sensor_active[sensor] = True
 
         if len(sensors) > 1:
             self.bag_lock = threading.Lock()
@@ -105,7 +102,7 @@ class RosbagProducer(Process):
                 self.rosbag_prefix += "/"
 
         if self.multipart:
-            self.chunk_count = len(self.topic_list)*2
+            self.chunk_count = len(self.sensor_list)*2
 
         cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
         cal_data = cal_obj.get()['Body'].read().decode('utf-8')
@@ -161,79 +158,80 @@ class RosbagProducer(Process):
             self.bag = None
             self.bag_path = None
 
-    def __write_ros_msg_to_bag(self, topic=None, msg=None, ts=None, s3_client=None, flush=False):
+    def __write_ros_msg_to_bag(self, sensor=None, msg=None, ts=None, s3_client=None, flush=False):
 
         if not self.bag:
             self.__open_bag()
+        topic = self.request['ros_topic'][sensor]
         self.bag.write(topic, msg, ts)
                 
-        if not flush and topic != self.bus_topic:
-            self.round_robin.append(topic)
+        if not flush and not self.__is_bus_sensor(sensor):
+            self.round_robin.append(sensor)
             if self.multipart:
                 self.msg_count += 1
                 if self.msg_count % self.chunk_count == 0:
                     self.__close_bag(s3_client=s3_client)
 
-    def __is_topic_alive(self, topic):
-        return  self.topic_dict[topic] or self.topic_active[topic]
+    def __is_sensor_alive(self, sensor):
+        return  self.sensor_dict[sensor] or self.sensor_active[sensor]
     
-    def __next_round_robin_topic(self,  topic=None, msg=None, ts=None):
-        # add message to topic queue
-        self.topic_dict[topic].append(Qmsg(msg=msg, ts=ts))
+    def __round_robin_sensor(self,  sensor=None, msg=None, ts=None):
+        # add message to sensor queue
+        self.sensor_dict[sensor].append(Qmsg(msg=msg, ts=ts))
                 
         msg = None
         ts = None
-        topic = None
+        sensor = None
 
-        # round robin through topics
-        _ntopics = len(self.topic_list)
-        for _topic in self.topic_list:
-            self.topic_index = (self.topic_index + 1) % _ntopics
-            _topic = self.topic_list[ self.topic_index ]
-            if _topic in self.round_robin and any([True for k in self.topic_active.keys() if not (k in self.round_robin) and self.__is_topic_alive(k)]):
+        # round robin through sensors
+        _nsensors = len(self.sensor_list)
+        for _ in self.sensor_list:
+            self.sensor_index = (self.sensor_index + 1) % _nsensors
+            _sensor = self.sensor_list[ self.sensor_index ]
+            if _sensor in self.round_robin and any([True for k in self.sensor_active.keys() if k not in self.round_robin and self.__is_sensor_alive(k)]):
                 continue
 
-            if self.topic_dict[_topic]:
-                front = self.topic_dict[_topic].pop(0)
+            if self.sensor_dict[_sensor]:
+                front = self.sensor_dict[_sensor].pop(0)
                 msg = front.msg
                 ts = front.ts
-                topic = _topic
+                sensor = _sensor
                 break
         
-        return topic, msg, ts
+        return sensor, msg, ts
 
     def __flush_bag(self):
         try:
             if self.bag_lock:
                 self.bag_lock.acquire()
 
-            _ntopics = len(self.topic_list)
+            _nsensors = len(self.sensor_list)
               
             msg = None
             ts = None
-            topic = None
+            sensor = None
 
-            _ntopics_flushed = 0
-            # rotate through topics and flush them to bag
-            self.logger.info("Flushing  ROS topics to bag")
-            for _ in range(_ntopics):
-                self.topic_index = (self.topic_index + 1) % _ntopics
-                _topic = self.topic_list[ self.topic_index ]
+            _nsensors_flushed = 0
+            # rotate through sensors and flush them to bag
+            self.logger.info("Flushing  ROS sensors to bag")
+            for _ in range(_nsensors):
+                self.sensor_index = (self.sensor_index + 1) % _nsensors
+                _sensor = self.sensor_list[ self.sensor_index ]
                 
-                if self.topic_dict[_topic]:
-                    front = self.topic_dict[_topic].pop(0)
+                if self.sensor_dict[_sensor]:
+                    front = self.sensor_dict[_sensor].pop(0)
                     msg = front.msg
                     ts = front.ts
-                    topic = _topic
+                    sensor = _sensor
                 else:
-                    _ntopics_flushed += 1
+                    _nsensors_flushed += 1
 
-                if topic and msg and ts:
-                    self.__write_ros_msg_to_bag(topic=topic, msg=msg, ts=ts, s3_client=None, flush=True)
+                if sensor and msg and ts:
+                    self.__write_ros_msg_to_bag(sensor=sensor, msg=msg, ts=ts, s3_client=None, flush=True)
                 
-                if _ntopics == _ntopics_flushed:
+                if _nsensors == _nsensors_flushed:
                     break
-            self.logger.info("Flushed ROS topics to bag")
+            self.logger.info("Flushed ROS sensors to bag")
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -245,25 +243,22 @@ class RosbagProducer(Process):
             if self.bag_lock:
                 self.bag_lock.release()
     
+    def __is_bus_sensor(self, sensor=None):
+        return self.request["data_type"][sensor] == RosbagProducer.BUS_DATA_TYPE
 
-    def __topic_sleep(self, ros_topic=None):
-        if self.bag_lock:
-            factor = len(self.topic_dict[ros_topic]) + 1
-            time.sleep(RosbagProducer.SLEEP_INTERVAL*factor)
-
-    def __record_ros_msg(self, topic=None, msg=None, ts=None, s3_client=None):
+    def __record_ros_msg(self, sensor=None, msg=None, ts=None, s3_client=None):
         try:
             if self.bag_lock:
                 self.bag_lock.acquire()
 
-            topic, msg, ts = self.__next_round_robin_topic(topic=topic, msg=msg, ts=ts)
-            if topic and msg and ts:
-                self.__write_ros_msg_to_bag(topic=topic, msg=msg, ts=ts, s3_client=s3_client)
+            sensor, msg, ts = self.__round_robin_sensor(sensor=sensor, msg=msg, ts=ts)
+            if sensor and msg and ts:
+                self.__write_ros_msg_to_bag(sensor=sensor, msg=msg, ts=ts, s3_client=s3_client)
 
-            sensor_topics = [k for k in self.topic_active.keys() if k != self.bus_topic and self.__is_topic_alive(k)]
-            if (len(self.round_robin) >= len(sensor_topics)) and self.round_robin:
+            sensors = [k for k in self.sensor_active.keys() if not self.__is_bus_sensor(k) and self.__is_sensor_alive(k)]
+            if (len(self.round_robin) >= len(sensors)) and self.round_robin:
                 self.round_robin.pop(0)
-            
+                
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -275,12 +270,12 @@ class RosbagProducer(Process):
                 self.bag_lock.release()
 
     
-    def __record_image_msg(self, ros_topic=None, image=None, image_ts=None, frame_id=None, s3_client=None):
+    def __record_image_msg(self, sensor=None, image=None, image_ts=None, frame_id=None, s3_client=None):
         try:
             ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(image)
             RosUtil.set_ros_msg_header( ros_msg=ros_image_msg, ts=image_ts, frame_id=frame_id)
-            self.__record_ros_msg(topic=ros_topic, msg=ros_image_msg, ts=ros_image_msg.header.stamp, s3_client=s3_client)
-            self.__topic_sleep(ros_topic=ros_topic)
+            self.__record_ros_msg(sensor=sensor, msg=ros_image_msg, 
+                ts=ros_image_msg.header.stamp, s3_client=s3_client)
         except BaseException as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -299,7 +294,7 @@ class RosbagProducer(Process):
         return lens, dist_parms, intr_mat_dist, intr_mat_undist
 
 
-    def __record_images_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __record_images_from_fs(self, manifest=None,   sensor=None, frame_id=None):
 
         image_reader = dict()
         image_data = dict() 
@@ -326,14 +321,14 @@ class RosbagProducer(Process):
                         intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
                 else:
                     image = image_data[i]
-                self.__record_image_msg(ros_topic=ros_topic, image=image, image_ts=image_ts[i], frame_id=frame_id)
+                self.__record_image_msg(sensor=sensor, image=image, image_ts=image_ts[i], frame_id=frame_id)
 
             if self.request['preview']:
                 break
 
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __process_s3_image_files(self, ros_topic=None, files=None, resp=None, 
+    def __process_s3_image_files(self, sensor=None, files=None, resp=None, 
                                 frame_id=None,  s3_client=None, image_request=None, lens=None, 
                                 dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
         for f in files:
@@ -346,7 +341,7 @@ class RosbagProducer(Process):
                 else:
                     image = image_data
                 image_ts = int(f[2])
-                self.__record_image_msg(ros_topic=ros_topic, image=image, image_ts=image_ts, 
+                self.__record_image_msg(sensor=sensor, image=image, image_ts=image_ts, 
                         frame_id=frame_id, s3_client=s3_client)
                 os.remove(path)
             except BaseException as _:
@@ -355,7 +350,7 @@ class RosbagProducer(Process):
                 self.logger.error(str(exc_type))
                 self.logger.error(str(exc_value))
 
-    def __record_images_from_s3(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __record_images_from_s3(self, manifest=None, sensor=None, frame_id=None):
 
         s3_client = get_s3_client()
 
@@ -380,7 +375,7 @@ class RosbagProducer(Process):
                 key = f[1]
                 req.put(bucket+" "+key)
 
-            self.__process_s3_image_files(ros_topic=ros_topic, files=files, resp=resp, frame_id=frame_id, 
+            self.__process_s3_image_files(sensor=sensor, files=files, resp=resp, frame_id=frame_id, 
                             s3_client=s3_client, image_request=image_request, 
                             lens=lens, dist_parms=dist_parms, intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist)
 
@@ -392,13 +387,13 @@ class RosbagProducer(Process):
         if s3_reader.is_alive():
             s3_reader.terminate()
         
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __record_pcl_msg(self, ros_topic=None, points=None, reflectance=None, pcl_ts=None, frame_id=None, s3_client=None):
+    def __record_pcl_msg(self, sensor=None, points=None, reflectance=None, 
+        pcl_ts=None, frame_id=None, s3_client=None):
         try:
             ros_pcl_msg = RosUtil.pcl_dense_msg(points=points, reflectance=reflectance, ts=pcl_ts, frame_id=frame_id)
-            self.__record_ros_msg(topic=ros_topic, msg=ros_pcl_msg, ts=ros_pcl_msg.header.stamp, s3_client=s3_client)
-            self.__topic_sleep(ros_topic=ros_topic)
+            self.__record_ros_msg(sensor=sensor, msg=ros_pcl_msg, ts=ros_pcl_msg.header.stamp, s3_client=s3_client)
         except BaseException as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -410,7 +405,7 @@ class RosbagProducer(Process):
         cam_name = sensor.rsplit("/", 1)[1]
         return transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])
        
-    def __process_s3_pcl_files(self, ros_topic=None, files=None, resp=None, 
+    def __process_s3_pcl_files(self, sensor=None, files=None, resp=None, 
                                 frame_id=None, s3_client=None,
                                 lidar_view=None, vehicle_transform_matrix=None):
         for f in files:
@@ -421,7 +416,7 @@ class RosbagProducer(Process):
                 points, reflectance = RosUtil.parse_pcl_npz(npz=npz, lidar_view=lidar_view, 
                         vehicle_transform_matrix=vehicle_transform_matrix)
                 if not np.isnan(points).any():
-                    self.__record_pcl_msg(ros_topic=ros_topic, points=points, reflectance=reflectance, 
+                    self.__record_pcl_msg(sensor=sensor, points=points, reflectance=reflectance, 
                         pcl_ts=pcl_ts, frame_id=frame_id, s3_client=s3_client)
                 os.remove(path)
             except BaseException as _:
@@ -430,7 +425,7 @@ class RosbagProducer(Process):
                 self.logger.error(str(exc_type))
                 self.logger.error(str(exc_value))
         
-    def __record_pcl_from_s3(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __record_pcl_from_s3(self, manifest=None,  sensor=None, frame_id=None):
 
         s3_client = get_s3_client()
 
@@ -455,7 +450,7 @@ class RosbagProducer(Process):
                 key = f[1]
                 req.put(bucket+" "+key)
 
-            self.__process_s3_pcl_files(ros_topic=ros_topic, 
+            self.__process_s3_pcl_files(sensor=sensor, 
                     files=files, resp=resp, frame_id=frame_id, s3_client=s3_client,
                     lidar_view=lidar_view, vehicle_transform_matrix=vehicle_transform_matrix)
 
@@ -467,9 +462,9 @@ class RosbagProducer(Process):
         if s3_reader.is_alive():
             s3_reader.terminate()
 
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __record_pcl_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __record_pcl_from_fs(self, manifest=None, sensor=None, frame_id=None):
 
         pcl_reader = dict() 
         pcl_ts = dict()
@@ -492,29 +487,28 @@ class RosbagProducer(Process):
                 points, reflectance = RosUtil.parse_pcl_npz(npz=npz[i], lidar_view=lidar_view, 
                     vehicle_transform_matrix=vehicle_transform_matrix)
                 if not np.isnan(points).any():
-                    self.__record_pcl_msg(ros_topic=ros_topic, points=points, reflectance=reflectance, 
+                    self.__record_pcl_msg(sensor=sensor, points=points, reflectance=reflectance, 
                         pcl_ts=pcl_ts[i], frame_id=frame_id)
 
             if self.request['preview']:
                 break
 
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __reecord_images(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __reecord_images(self, manifest=None,  sensor=None, frame_id=None):
         if self.data_store['input'] != 's3':
-            self.__record_images_from_fs(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__record_images_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
         else:
-            self.__record_images_from_s3(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__record_images_from_s3(manifest=manifest, sensor=sensor, frame_id=frame_id)
 
-    def __record_pcl(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __record_pcl(self, manifest=None,  sensor=None, frame_id=None):
         if self.data_store['input'] != 's3':
-            self.__record_pcl_from_fs(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__record_pcl_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
         else:
-            self.__record_pcl_from_s3(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__record_pcl_from_s3(manifest=manifest,  sensor=sensor, frame_id=frame_id)
 
-    def __record_bus(self, manifest=None,  ros_topic=None, frame_id=None):
+    def __record_bus(self, manifest=None, sensor=None, frame_id=None):
 
-        self.bus_topic = ros_topic 
         while True:
             rows = None
             while not rows and manifest.is_open():
@@ -525,8 +519,7 @@ class RosbagProducer(Process):
             for row in rows:
                 try:
                     ros_msg = RosUtil.bus_msg(row=row, frame_id=frame_id)
-                    self.__record_ros_msg(topic=ros_topic, msg=ros_msg, ts=ros_msg.header.stamp)
-                    self.__topic_sleep(ros_topic=ros_topic)
+                    self.__record_ros_msg(sensor=sensor, msg=ros_msg, ts=ros_msg.header.stamp)
                 except BaseException as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -536,16 +529,17 @@ class RosbagProducer(Process):
             if self.request['preview']:
                 break
         
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __record_sensor(self, manifest=None, sensor=None, data_type=None, ros_topic=None, frame_id=None):
+    def __record_sensor(self, manifest=None, sensor=None, frame_id=None):
         try:
+            data_type = self.request["data_type"][sensor]
             if data_type ==  'sensor_msgs/Image':
-                self.__reecord_images(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+                self.__reecord_images(manifest=manifest,  sensor=sensor, frame_id=frame_id)
             elif data_type == 'sensor_msgs/PointCloud2':
-                self.__record_pcl(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
-            elif data_type ==  'a2d2_msgs/Bus':
-                self.__record_bus(manifest=manifest, ros_topic=ros_topic, frame_id=frame_id)
+                self.__record_pcl(manifest=manifest, sensor=sensor, frame_id=frame_id)
+            elif data_type ==  RosbagProducer.BUS_DATA_TYPE:
+                self.__record_bus(manifest=manifest, sensor=sensor, frame_id=frame_id)
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -563,18 +557,13 @@ class RosbagProducer(Process):
             tasks = []
 
             sensors = self.request["sensor_id"]
-            sensor_topics = self.request['ros_topic']
-            sensor_data_types = self.request["data_type"]
             sensor_frame_id = self.request.get("frame_id", dict())
 
             for s in sensors:
                 manifest = self.manifests[s]
-                data_type = sensor_data_types[s]
-                ros_topic = sensor_topics[s]
                 frame_id = sensor_frame_id.get(s, "map")
                 t = threading.Thread(target=self.__record_sensor, name=s,
-                    kwargs={"manifest": manifest, "data_type": data_type, 
-                            "ros_topic": ros_topic, "sensor":  s, "frame_id": frame_id})
+                    kwargs={"manifest": manifest,  "sensor":  s, "frame_id": frame_id})
                 tasks.append(t)
                 t.start()
                 self.logger.info("Started thread:" + t.getName())

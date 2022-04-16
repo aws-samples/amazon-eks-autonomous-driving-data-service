@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-import re
 
 import sys, traceback
 import logging
@@ -33,6 +32,7 @@ from util import read_images_from_fs, read_pcl_from_fs
 from view import transform_from_to
 from s3_reader import S3Reader
 from ros_util import RosUtil
+from multiprocessing import Queue
 
 import cv_bridge
 from std_msgs.msg import String
@@ -41,9 +41,8 @@ import subprocess
 
 
 class RosDataNode:
-
     DATA_REQUEST_TOPIC = "/mozart/data_request"
-    SLEEP_INTERVAL = .000001 # seconds
+    BUS_DATA_TYPE = 'a2d2_msgs/Bus'
 
     def __init__(self, config=None):
         self.logger = logging.getLogger("ros_datanode")
@@ -67,7 +66,7 @@ class RosDataNode:
 
         node_name = "mozart_datanode_{0}".format(random_string(6))
 
-        self.logger.info(f"Init ROS node: {node_name}, future log messages will be redirected to ROS node log")
+        self.logger.info(f"Init ROS node: {node_name}, future log messages will be in ROS node log")
         rospy.init_node(node_name)
         rospy.Subscriber(RosDataNode.DATA_REQUEST_TOPIC, String, self.data_request_cb)
 
@@ -76,21 +75,19 @@ class RosDataNode:
 
     def init_request(self, request):
         self.manifests = dict() 
-        self.topic_dict = dict()
-        self.topic_list = list()
-        self.topic_active = dict()
-        self.topic_index = 0
+        self.sensor_dict = dict()
+        self.sensor_list = list()
+        self.sensor_active = dict()
+        self.sensor_index = 0
         self.round_robin = list()
-        self.bus_topic = None
 
         self.request = request
         sensors = self.request['sensor_id']
-        for s in sensors:
-            self.manifests[s] = create_manifest(request=request, dbconfig=self.dbconfig, sensor_id=s)
-            _topic = self.request['ros_topic'][s]
-            self.topic_dict[_topic] = []
-            self.topic_list.append(_topic)
-            self.topic_active[_topic] = True
+        for sensor in sensors:
+            self.manifests[sensor] = create_manifest(request=request, dbconfig=self.dbconfig, sensor_id=sensor)
+            self.sensor_dict[sensor] = []
+            self.sensor_list.append(sensor)
+            self.sensor_active[sensor] = True
 
         self.ros_publishers = dict()
 
@@ -105,18 +102,17 @@ class RosDataNode:
             sensor_data_types = self.request["data_type"]
             sensor_frame_id = self.request.get("frame_id", dict())
 
-            for s in sensors:
-                manifest = self.manifests[s]
-                data_type = sensor_data_types[s]
-                ros_topic = sensor_topics[s]
-                frame_id = sensor_frame_id.get(s, "map")
+            for sensor in sensors:
+                manifest = self.manifests[sensor]
+                data_type = sensor_data_types[sensor]
+                ros_topic = sensor_topics[sensor]
+                frame_id = sensor_frame_id.get(sensor, "map")
 
                 ros_data_class = RosUtil.get_data_class(data_type)
-                self.ros_publishers[ros_topic] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
+                self.ros_publishers[sensor] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
                 time.sleep(1)
-                t = threading.Thread(target=self.__publish_sensor, name=s,
-                    kwargs={"manifest": manifest, "data_type": data_type, 
-                            "ros_topic": ros_topic, "sensor":  s, "frame_id": frame_id})
+                t = threading.Thread(target=self.__publish_sensor, name=sensor,
+                    kwargs={"manifest": manifest,  "sensor":  sensor, "frame_id": frame_id})
                 tasks.append(t)
                 t.start()
                 self.logger.info("Started thread:" + t.getName())
@@ -126,69 +122,66 @@ class RosDataNode:
                 t.join()
                 self.logger.info("Thread finished:" + t.getName())
 
-            self.logger.info("Flush ROS topics")
-            self.__flush_topics()
+            self.logger.info("Flush ROS sensors")
+            self.__flush_sensors()
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
 
-    def __publish_to_topic(self, topic=None, msg=None):
-        self.ros_publishers[topic].publish(msg)
-
-    def __is_topic_alive(self, topic):
-        return  self.topic_dict[topic] or self.topic_active[topic]
+    def __is_sensor_alive(self, sensor):
+        return  self.sensor_dict[sensor] or self.sensor_active[sensor]
     
-    def __next_round_robin_topic(self,  topic=None, msg=None):
-        # add message to topic queue
-        self.topic_dict[topic].append(msg)
+    def __round_robin_sensor(self,  sensor=None, msg=None):
+        # add message to sensor queue
+        self.sensor_dict[sensor].append(msg)
                 
         msg = None
-        topic = None
+        sensor = None
 
-        # round robin through topics
-        _ntopics = len(self.topic_list)
-        for _topic in self.topic_list:
-            self.topic_index = (self.topic_index + 1) % _ntopics
-            _topic = self.topic_list[ self.topic_index ]
-            if _topic in self.round_robin and any([True for k in self.topic_active.keys() if not (k in self.round_robin) and self.__is_topic_alive(k)]):
+        # round robin through sensors
+        _nsensors = len(self.sensor_list)
+        for _ in self.sensor_list:
+            self.sensor_index = (self.sensor_index + 1) % _nsensors
+            _sensor = self.sensor_list[ self.sensor_index ]
+            if _sensor in self.round_robin and any([True for k in self.sensor_active.keys() if k not in self.round_robin and self.__is_sensor_alive(k)]):
                 continue
 
-            if self.topic_dict[_topic]:
-                msg = self.topic_dict[_topic].pop(0)
-                topic = _topic
+            if self.sensor_dict[_sensor]:
+                msg = self.sensor_dict[_sensor].pop(0)
+                sensor = _sensor
                 break
         
-        return topic, msg
+        return sensor, msg
 
-    def __flush_topics(self):
+    def __flush_sensors(self):
         try:
-            _ntopics = len(self.topic_list)
+            _nsensors = len(self.sensor_list)
               
             msg = None
-            topic = None
+            sensor = None
 
-            _ntopics_flushed = 0
-            # rotate through topics and flush them
-            self.logger.info("Flushing  ROS topics")
-            for _ in range(_ntopics):
-                self.topic_index = (self.topic_index + 1) % _ntopics
-                _topic = self.topic_list[ self.topic_index ]
+            _nsensors_flushed = 0
+            # rotate through sensors and flush them
+            self.logger.info("Flushing ROS sensors")
+            for _ in range(_nsensors):
+                self.sensor_index = (self.sensor_index + 1) % _nsensors
+                _sensor = self.sensor_list[ self.sensor_index ]
                 
-                if self.topic_dict[_topic]:
-                    front = self.topic_dict[_topic].pop(0)
+                if self.sensor_dict[_sensor]:
+                    front = self.sensor_dict[_sensor].pop(0)
                     msg = front.msg
-                    topic = _topic
+                    sensor = _sensor
                 else:
-                    _ntopics_flushed += 1
+                    _nsensors_flushed += 1
 
-                if topic and msg:
-                    self.__publish_to_topic(topic=topic, msg=msg)
+                if sensor and msg:
+                    self.ros_publishers[sensor].publish(msg)
                 
-                if _ntopics == _ntopics_flushed:
+                if _nsensors == _nsensors_flushed:
                     break
-            self.logger.info("Flushed ROS topics")
+            self.logger.info("Flushed ROS sensors")
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -197,20 +190,19 @@ class RosDataNode:
             self.logger.error(str(exc_value))
             raise
 
-    def __topic_sleep(self, ros_topic=None):
-        factor = len(self.topic_dict[ros_topic]) + 1
-        time.sleep(RosDataNode.SLEEP_INTERVAL*factor)
+    def __is_bus_sensor(self, sensor=None):
+        return self.request["data_type"][sensor] == RosDataNode.BUS_DATA_TYPE
 
-    def __publish_ros_msg(self, topic=None, msg=None):
+    def __publish_ros_msg(self, sensor=None, msg=None):
         try:
-            topic, msg = self.__next_round_robin_topic(topic=topic, msg=msg)
-            if topic and msg:
-                self.__publish_to_topic(topic=topic, msg=msg)
+            sensor, msg = self.__round_robin_sensor(sensor=sensor, msg=msg)
+            if sensor and msg:
+                self.ros_publishers[sensor].publish(msg)
 
-            sensor_topics = [k for k in self.topic_active.keys() if k != self.bus_topic and self.__is_topic_alive(k)]
-            if (len(self.round_robin) >= len(sensor_topics)) and self.round_robin:
+            sensors = [k for k in self.sensor_active.keys() if not self.__is_bus_sensor(k) and self.__is_sensor_alive(k)]
+            if (len(self.round_robin) >= len(sensors)) and self.round_robin:
                 self.round_robin.pop(0)
-            
+                
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -219,12 +211,11 @@ class RosDataNode:
             raise
 
     
-    def __publish_image_msg(self, ros_topic=None, image=None, image_ts=None, frame_id=None):
+    def __publish_image_msg(self, sensor=None, image=None, image_ts=None, frame_id=None):
         try:
             ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(image)
             RosUtil.set_ros_msg_header( ros_msg=ros_image_msg, ts=image_ts, frame_id=frame_id)
-            self.__publish_ros_msg(topic=ros_topic, msg=ros_image_msg)
-            self.__topic_sleep(ros_topic=ros_topic)
+            self.__publish_ros_msg(sensor=sensor, msg=ros_image_msg)
         except BaseException as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -242,7 +233,7 @@ class RosDataNode:
 
         return lens, dist_parms, intr_mat_dist, intr_mat_undist
 
-    def __publish_images_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __publish_images_from_fs(self, manifest=None, sensor=None, frame_id=None):
 
         image_reader = dict()
         image_data = dict() 
@@ -269,14 +260,14 @@ class RosDataNode:
                         intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
                 else:
                     image = image_data[i]
-                self.__publish_image_msg(ros_topic=ros_topic, image=image, image_ts=image_ts[i], frame_id=frame_id)
+                self.__publish_image_msg(sensor=sensor, image=image, image_ts=image_ts[i], frame_id=frame_id)
 
             if self.request['preview']:
                 break
 
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __process_s3_image_files(self, ros_topic=None, files=None, resp=None, 
+    def __process_s3_image_files(self, sensor=None, files=None, resp=None, 
                                 frame_id=None,  image_request=None, lens=None, 
                                 dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
         for f in files:
@@ -289,7 +280,7 @@ class RosDataNode:
                 else:
                     image = image_data
                 image_ts = int(f[2])
-                self.__publish_image_msg(ros_topic=ros_topic, image=image, image_ts=image_ts, 
+                self.__publish_image_msg(sensor=sensor, image=image, image_ts=image_ts, 
                         frame_id=frame_id)
                 os.remove(path)
             except BaseException as _:
@@ -298,7 +289,7 @@ class RosDataNode:
                 self.logger.error(str(exc_type))
                 self.logger.error(str(exc_value))
 
-    def __publish_images_from_s3(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __publish_images_from_s3(self, manifest=None,  sensor=None, frame_id=None):
 
         req = Queue()
         resp = Queue()
@@ -321,7 +312,7 @@ class RosDataNode:
                 key = f[1]
                 req.put(bucket+" "+key)
 
-            self.__process_s3_image_files(ros_topic=ros_topic, files=files, resp=resp, frame_id=frame_id, 
+            self.__process_s3_image_files(sensor=sensor, files=files, resp=resp, frame_id=frame_id, 
                             image_request=image_request, 
                             lens=lens, dist_parms=dist_parms, 
                             intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist)
@@ -334,13 +325,12 @@ class RosDataNode:
         if s3_reader.is_alive():
             s3_reader.terminate()
         
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __publish_pcl_msg(self, ros_topic=None, points=None, reflectance=None, pcl_ts=None, frame_id=None):
+    def __publish_pcl_msg(self, sensor=None, points=None, reflectance=None, pcl_ts=None, frame_id=None):
         try:
             ros_pcl_msg = RosUtil.pcl_dense_msg(points=points, reflectance=reflectance, ts=pcl_ts, frame_id=frame_id)
-            self.__publish_ros_msg(topic=ros_topic, msg=ros_pcl_msg)
-            self.__topic_sleep(ros_topic=ros_topic)
+            self.__publish_ros_msg(sensor=sensor, msg=ros_pcl_msg)
         except BaseException as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -352,7 +342,7 @@ class RosDataNode:
         cam_name = sensor.rsplit("/", 1)[1]
         return transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])
        
-    def __process_s3_pcl_files(self, ros_topic=None, files=None, resp=None, 
+    def __process_s3_pcl_files(self, sensor=None, files=None, resp=None, 
                                 frame_id=None, lidar_view=None, vehicle_transform_matrix=None):
         for f in files:
             try:
@@ -362,7 +352,7 @@ class RosDataNode:
                 points, reflectance = RosUtil.parse_pcl_npz(npz=npz, lidar_view=lidar_view, 
                         vehicle_transform_matrix=vehicle_transform_matrix)
                 if not np.isnan(points).any():
-                    self.__publish_pcl_msg(ros_topic=ros_topic, points=points, reflectance=reflectance, 
+                    self.__publish_pcl_msg(sensor=sensor, points=points, reflectance=reflectance, 
                         pcl_ts=pcl_ts, frame_id=frame_id)
                 os.remove(path)
             except BaseException as _:
@@ -371,7 +361,7 @@ class RosDataNode:
                 self.logger.error(str(exc_type))
                 self.logger.error(str(exc_value))
         
-    def __publish_pcl_from_s3(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __publish_pcl_from_s3(self, manifest=None,  sensor=None, frame_id=None):
 
         req = Queue()
         resp = Queue()
@@ -394,7 +384,7 @@ class RosDataNode:
                 key = f[1]
                 req.put(bucket+" "+key)
 
-            self.__process_s3_pcl_files(ros_topic=ros_topic, 
+            self.__process_s3_pcl_files(sensor=sensor, 
                     files=files, resp=resp, frame_id=frame_id,
                     lidar_view=lidar_view, vehicle_transform_matrix=vehicle_transform_matrix)
 
@@ -406,9 +396,9 @@ class RosDataNode:
         if s3_reader.is_alive():
             s3_reader.terminate()
 
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __publish_pcl_from_fs(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __publish_pcl_from_fs(self, manifest=None,  sensor=None,  frame_id=None):
 
         pcl_reader = dict() 
         pcl_ts = dict()
@@ -430,29 +420,28 @@ class RosDataNode:
                 points, reflectance = RosUtil.parse_pcl_npz(npz=npz[i], lidar_view=lidar_view, 
                     vehicle_transform_matrix=vehicle_transform_matrix)
                 if not np.isnan(points).any():
-                    self.__publish_pcl_msg(ros_topic=ros_topic, points=points, reflectance=reflectance, 
+                    self.__publish_pcl_msg(sensor=sensor, points=points, reflectance=reflectance, 
                         pcl_ts=pcl_ts[i], frame_id=frame_id)
 
             if self.request['preview']:
                 break
 
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __publish_images(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __publish_images(self, manifest=None,  sensor=None, frame_id=None):
         if self.data_store['input'] != 's3':
-            self.__publish_images_from_fs(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__publish_images_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
         else:
-            self.__publish_images_from_s3(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__publish_images_from_s3(manifest=manifest, sensor=sensor, frame_id=frame_id)
 
-    def __publish_pcl(self, manifest=None,  ros_topic=None, sensor=None, frame_id=None):
+    def __publish_pcl(self, manifest=None,   sensor=None, frame_id=None):
         if self.data_store['input'] != 's3':
-            self.__publish_pcl_from_fs(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__publish_pcl_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
         else:
-            self.__publish_pcl_from_s3(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+            self.__publish_pcl_from_s3(manifest=manifest, sensor=sensor, frame_id=frame_id)
 
-    def __publish_bus(self, manifest=None,  ros_topic=None, frame_id=None):
+    def __publish_bus(self, manifest=None, sensor=None,  frame_id=None):
 
-        self.bus_topic = ros_topic 
         while True:
             rows = None
             while not rows and manifest.is_open():
@@ -463,8 +452,7 @@ class RosDataNode:
             for row in rows:
                 try:
                     ros_msg = RosUtil.bus_msg(row=row, frame_id=frame_id)
-                    self.__publish_ros_msg(topic=ros_topic, msg=ros_msg)
-                    self.__topic_sleep(ros_topic=ros_topic)
+                    self.__publish_ros_msg(sensor=sensor, msg=ros_msg)
                 except BaseException as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -474,16 +462,17 @@ class RosDataNode:
             if self.request['preview']:
                 break
         
-        self.topic_active[ros_topic] = False
+        self.sensor_active[sensor] = False
 
-    def __publish_sensor(self, manifest=None, sensor=None, data_type=None, ros_topic=None, frame_id=None):
+    def __publish_sensor(self, manifest=None, sensor=None, frame_id=None):
         try:
+            data_type = self.request["data_type"][sensor]
             if data_type ==  'sensor_msgs/Image':
-                self.__publish_images(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
+                self.__publish_images(manifest=manifest, sensor=sensor, frame_id=frame_id)
             elif data_type == 'sensor_msgs/PointCloud2':
-                self.__publish_pcl(manifest=manifest, ros_topic=ros_topic, sensor=sensor, frame_id=frame_id)
-            elif data_type ==  'a2d2_msgs/Bus':
-                self.__publish_bus(manifest=manifest, ros_topic=ros_topic, frame_id=frame_id)
+                self.__publish_pcl(manifest=manifest,  sensor=sensor, frame_id=frame_id)
+            elif data_type ==  RosDataNode.BUS_DATA_TYPE:
+                self.__publish_bus(manifest=manifest, sensor=sensor, frame_id=frame_id)
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
