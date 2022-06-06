@@ -27,9 +27,7 @@ import stat
 import errno
 
 import boto3
-import cv2
-import numpy as np
-import threading
+import json
 
 from manifest_dataset import ManifestDataset
 from bus_dataset import BusDataset
@@ -140,75 +138,6 @@ def create_manifest(request=None, dbconfig=None, sensor_id=None):
 
     return manifest
 
-def fsx_read_image(data_store=None, id=None, img_path=None, image_data=None):
-    ''' read image file from fsx file system '''
-    fsx_config = data_store['fsx']
-    fsx_root = fsx_config['root']
-    image_data[id] = cv2.imread(os.path.join(fsx_root, img_path))
-    
-    
-def fsx_read_pcl_npz(data_store=None, id=None, pcl_path=None, npz=None):
-    ''' read pcl npz file from fsx file system '''
-    fsx_config = data_store['fsx']
-    fsx_root = fsx_config['root']
-    pcl_path = os.path.join(fsx_root, pcl_path)
-    npz[id] =  np.load(pcl_path)
-        
-def efs_read_image(data_store=None, id=None, img_path=None, image_data=None):
-    ''' read image file from efs file system '''
-    efs_config = data_store['efs']
-    efs_root = efs_config['root']
-    image_data[id] = cv2.imread(os.path.join(efs_root, img_path))
-    
-    
-def efs_read_pcl_npz(data_store=None, id=None, pcl_path=None, npz=None):
-    ''' read pcl npz file from efs file system '''
-    efs_config = data_store['efs']
-    efs_root = efs_config['root']
-    pcl_path = os.path.join(efs_root, pcl_path)
-    npz[id] =  np.load(pcl_path)
-
-def read_images_from_fs(data_store=None, files=None, image_reader=None, image_data=None, image_ts=None):
-
-    image_reader.clear() 
-    image_data.clear()
-    image_ts.clear()
-
-    idx = 0
-    for f in files:
-        if data_store['input'] == 'fsx':
-            img_path = f[1]
-            image_reader[idx] = threading.Thread(target=fsx_read_image, 
-                        kwargs={"data_store": data_store, "id": idx, "img_path": img_path, "image_data": image_data})
-        elif data_store['input'] == 'efs':
-            img_path = f[1]
-            image_reader[idx] = threading.Thread(target=efs_read_image, 
-                            kwargs={"data_store": data_store, "id": idx, "img_path": img_path, "image_data": image_data})
-
-        image_reader[idx].start()
-        image_ts[idx]= int(f[2])
-        idx += 1
-
-    return idx
-
-def read_pcl_from_fs(data_store=None, files=None, pcl_reader=None, pcl_ts=None, npz=None ):
-    pcl_reader.clear()
-    pcl_ts.clear()
-    npz.clear() 
-
-    idx = 0
-    for f in files:
-        if data_store['input'] == 'fsx':
-            pcl_path = f[1]
-            pcl_reader[idx] = threading.Thread(target=fsx_read_pcl_npz, 
-                            kwargs={"data_store": data_store, "id": idx, "pcl_path": pcl_path, "npz": npz})
-        elif data_store['input'] == 'efs':
-            pcl_path = f[1]
-            pcl_reader[idx] = threading.Thread(target=efs_read_pcl_npz, 
-                            kwargs={"data_store": data_store, "id": idx, "pcl_path": pcl_path, "npz": npz})
-
-        pcl_reader[idx].start()
-        pcl_ts[idx]= int(f[2])
-        idx += 1
-        
-    return idx
+def load_json_from_file(path):
+    with open(path, "r") as json_file:
+        return json.load(json_file)

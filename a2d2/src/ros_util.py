@@ -22,11 +22,64 @@ from __future__ import unicode_literals
 import time
 import numpy as np
 import cv2
+import threading
+import os
+import util
+import rospy
+
+import cv_bridge
 
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from a2d2_msgs.msg import Bus
+from visualization_msgs.msg import  Marker, MarkerArray
+from geometry_msgs.msg import  Pose
+from  pyquaternion import Quaternion
+from std_msgs.msg import ColorRGBA
+
+from view import transform_from_to
 
 class RosUtil(object):
+    BUS_DATA_TYPE = 'a2d2_msgs/Bus'
+    PCL_DATA_TYPE = "sensor_msgs/PointCloud2"
+    IMAGE_DATA_TYPE = "sensor_msgs/Image"
+    MARKER_ARRAY_CUBE_DATA_TYPE = "visualization_msgs/MarkerArray/Marker/CUBE"
+    MARKER_ARRAY_DATA_TYPE = "visualization_msgs/MarkerArray"
+    
+    
+    __CATEGORY_COLORS = dict()
+    __NS_MARKER_ID = dict()
+    __DATA_LOAD_FNS = {
+            PCL_DATA_TYPE: np.load, 
+            IMAGE_DATA_TYPE: cv2.imread, 
+            MARKER_ARRAY_CUBE_DATA_TYPE: util.load_json_from_file
+        }
+    __ROS_MSG_FNS = {}
+
+    @classmethod
+    def create_cv_brigde(cls):
+        cls.img_cv_bridge = cv_bridge.CvBridge()
+
+    @classmethod
+    def __category_color(cls, category=None):
+        color = cls.__CATEGORY_COLORS.get(category, None)
+        if color is None:
+            color = list(np.random.choice(range(255),size=3))
+            cls.__CATEGORY_COLORS[category] = color
+
+        return color
+
+    @classmethod
+    def __marker_id(cls, ns=None):
+        _id = cls.__NS_MARKER_ID.get(ns, None)
+
+        if _id is not None:
+            _id += 1
+        else:
+            _id = 0
+
+        cls.__NS_MARKER_ID[ns] = _id
+
+        return _id
 
     @classmethod
     def get_topics_types(cls, reader):
@@ -41,40 +94,58 @@ class RosUtil(object):
     @classmethod
     def get_data_class(cls, data_type):
         data_class = None
-        if data_type == 'sensor_msgs/Image':
+        if data_type == cls.IMAGE_DATA_TYPE:
             data_class = Image
-        elif data_type == 'sensor_msgs/PointCloud2':
+        elif data_type == cls.PCL_DATA_TYPE:
             data_class = PointCloud2
-        elif data_type == 'a2d2_msgs/Bus':
+        elif data_type == cls.BUS_DATA_TYPE:
             data_class = Bus
+        elif data_type == cls.MARKER_ARRAY_CUBE_DATA_TYPE:
+            data_class = MarkerArray
+        elif data_type == cls.MARKER_ARRAY_DATA_TYPE:
+             data_class = MarkerArray
         else:
             raise ValueError("Data type not supported:" + str(data_type))
 
         return data_class
 
     @classmethod
+    def __is_marker_array(cls, ros_msg):
+        return "MarkerArray" in str(type(ros_msg))
+
+    @classmethod
     def set_ros_msg_received_time(cls, ros_msg):
         _ts = time.time()*1000000
         _stamp = divmod(_ts, 1000000 ) #stamp in micro secs
         
-        ros_msg.header.stamp.secs = int(_stamp[0]) # secs
-        ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        if cls.__is_marker_array(ros_msg):
+            markers = ros_msg.markers
+            for marker in markers:
+                marker.header.stamp.secs = int(_stamp[0]) # secs
+                marker.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        else:
+            ros_msg.header.stamp.secs = int(_stamp[0]) # secs
+            ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
 
 
     @classmethod
     def set_ros_msg_header(cls, ros_msg=None, ts=None, frame_id=None):
-        ros_msg.header.frame_id = frame_id
-
         _stamp = divmod(ts, 1000000 ) #stamp in micro secs
-        ros_msg.header.stamp.secs = int(_stamp[0]) # secs
-        ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+
+        if cls.__is_marker_array(ros_msg):
+            markers = ros_msg.markers
+            for marker in markers:
+                marker.header.frame_id = frame_id
+                marker.header.stamp.secs = int(_stamp[0]) # secs
+                marker.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        else:
+            ros_msg.header.frame_id = frame_id
+            ros_msg.header.stamp.secs = int(_stamp[0]) # secs
+            ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
 
     @classmethod
-    def bus_msg(cls, row=None, frame_id=None):
+    def bus_msg(cls, row=None):
         msg = Bus()
-
-        ts = row[2]
-        cls.set_ros_msg_header(ros_msg=msg, ts=ts, frame_id=frame_id)
 
         # linear accel
         msg.vehicle_kinematics.acceleration.x = row[3]
@@ -134,8 +205,12 @@ class RosUtil(object):
         ]
 
     @classmethod
-    def pcl_sparse_msg(cls, points=None, reflectance=None, rows=None, cols=None, ts=None, frame_id=None):
+    def pcl_sparse_msg(cls, points=None, reflectance=None, rows=None, cols=None, transform=None):
   
+        if transform is not None:
+            points_trans = cls.transform_points_frame(points=points, transform=transform)
+            points = points_trans[:,0:3]
+
         rows = (rows + 0.5).astype(np.int)
         height= np.amax(rows) + 1
         
@@ -153,7 +228,6 @@ class RosUtil(object):
             ca[rows[i], cols[i], : ] = colors[i]
             
         msg = PointCloud2()
-        cls.set_ros_msg_header(ros_msg=msg, ts=ts, frame_id=frame_id)
         
         msg.width = width
         msg.height = height
@@ -170,18 +244,21 @@ class RosUtil(object):
         return msg
 
     @classmethod
-    def pcl_dense_msg(cls, points=None, reflectance=None, ts=None, frame_id=None):
+    def pcl_dense_msg(cls, points=None, reflectance=None, transform=None):
   
+        if transform is not None:
+            points_trans = cls.transform_points_frame(points=points, transform=transform)
+            points = points_trans[:,0:3]
+
         colors = np.stack([reflectance, reflectance, reflectance], axis=1)
         assert(points.shape == colors.shape)
     
         msg = PointCloud2()
-        cls.set_ros_msg_header(ros_msg=msg, ts=ts, frame_id=frame_id)
         
         msg.width = points.shape[0]
         msg.height = 1
         
-        msg.fields = msg.fields = cls.get_pcl_fields()
+        msg.fields = cls.get_pcl_fields()
 
         msg.is_bigendian = False
         msg.point_step = 24
@@ -193,33 +270,204 @@ class RosUtil(object):
         return msg
 
     @classmethod
-    def undistort_image(cls, image=None, lens=None, dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
-            
-        if (lens == 'Fisheye'):
-            return cv2.fisheye.undistortImage(image, intr_mat_dist,
-                                        D=dist_parms, Knew=intr_mat_undist)
-        elif (lens == 'Telecam'):
-            return cv2.undistort(image, intr_mat_dist, 
-                        distCoeffs=dist_parms, newCameraMatrix=intr_mat_undist)
-        else:
-            return image
+    def __make_color(cls, rgb, a=1):
+        c = ColorRGBA()
+        c.r = rgb[0]
+        c.g = rgb[1]
+        c.b = rgb[2]
+        c.a = a
+        
+        return c
+    @classmethod
+    def marker_cube_msg(cls, boxes=None, ns=None, lifetime=None, transform=None):
+        marker_array_msg = MarkerArray()
+        keys = boxes.keys()
+        for key in keys:
+            box =  boxes[key]
+
+            marker = Marker()
+            marker.ns = ns
+            marker.id = cls.__marker_id(ns)
+            category = box.get('class', "")
+            marker.text = category
+            marker.type = Marker.CUBE
+
+            center = box.get('center', None)
+            axis = box.get('axis', None)
+
+            if transform is not None:
+                points = np.expand_dims(center, axis=0)
+                points_trans = cls.transform_points_frame(points=points, transform=transform)
+                center = points_trans[0,0:3]
+
+                points = np.expand_dims(axis, axis=0)
+                points_trans = cls.transform_points_frame(points=points, transform=transform)
+                axis = points_trans[0,0:3]
+
+            rot_angle = box.get('rot_angle', None)
+            size = box.get('size', None)
+            quaternion = Quaternion(axis=axis, radians=rot_angle)
+
+            marker.pose = cls.get_pose(position=center, orientation=quaternion)
+            marker.frame_locked = True
+            marker.scale.x = size[0]
+            marker.scale.y = size[1]
+            marker.scale.z = size[2]
+            marker.color = cls.__make_color(cls.__category_color(category), 0.5)
+            if lifetime is not None:
+                marker.lifetime = lifetime
+            marker_array_msg.markers.append(marker)
+
+        return marker_array_msg
 
     @classmethod
-    def transform_points_frame(cls, points=None, trans=None):
+    def get_pose(cls, position=None, orientation=None):
+
+        p = Pose()
+        p.position.x = position[0]
+        p.position.y = position[1]
+        p.position.z = position[2]
+        
+        p.orientation.w = orientation[0]
+        p.orientation.x = orientation[1]
+        p.orientation.y = orientation[2]
+        p.orientation.z = orientation[3]
+            
+        return p
+
+    @classmethod
+    def undistort_image(cls, cvim, lens=None, dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
+            
+        if (lens == 'Fisheye'):
+            return cv2.fisheye.undistortImage(cvim, intr_mat_dist,
+                                        D=dist_parms, Knew=intr_mat_undist)
+        elif (lens == 'Telecam'):
+            return cv2.undistort(cvim, intr_mat_dist, 
+                        distCoeffs=dist_parms, newCameraMatrix=intr_mat_undist)
+        else:
+            return cvim
+
+    @classmethod
+    def transform_points_frame(cls, points=None, transform=None):
         points_hom = np.ones((points.shape[0], 4))
         points_hom[:, 0:3] = points
-        points_trans = (np.matmul(trans, points_hom.T)).T 
+        points_trans = (np.matmul(transform, points_hom.T)).T 
     
         return points_trans
 
     @classmethod
-    def parse_pcl_npz(cls, npz=None, lidar_view=None, vehicle_transform_matrix=None):
-        reflectance = npz["pcloud_attr.reflectance"]
+    def image_msg(cls, cvim=None, transform=None):
+        if transform is not None:
+            cvim = transform(cvim)
+        
+        return cls.img_cv_bridge.cv2_to_imgmsg(cvim)
 
-        if lidar_view == "vehicle":
-            points_trans = cls.transform_points_frame(points=npz["pcloud_points"], trans=vehicle_transform_matrix)
-            points = points_trans[:,0:3]
+    @classmethod
+    def __load_data_from_file(cls, data_store=None, id=None, path=None, data=None, load_fn=None):
+        ''' load data from file'''
+
+        fs = data_store['input']
+        config = data_store[fs]
+        root = config['root']
+        path = os.path.join(root, path)
+        data[id] = load_fn(path)
+
+    @classmethod
+    def load_data_from_fs(cls, data_type=None, data_store=None, 
+        data_files=None, data_loader=None, data=None, ts=None):
+
+        data_loader.clear() 
+        data.clear()
+        ts.clear()
+
+        idx = 0
+
+        load_fn = cls.__DATA_LOAD_FNS[data_type]
+        for f in data_files:
+            path = f[1]
+            data_loader[idx] = threading.Thread(target=cls.__load_data_from_file, 
+                            kwargs={"data_store": data_store, 
+                            "id": idx, "path": path, "data": data, "load_fn": load_fn})
+        
+            data_loader[idx].start()
+            ts[idx]= int(f[2])
+            idx += 1
+
+        return idx
+
+    @classmethod
+    def get_camera_info(cls, cal_json=None, sensor=None):
+        cam_name = sensor.rsplit("/", 1)[1]
+        # get parameters from calibration json 
+       
+        intr_mat_undist = np.asarray(cal_json['cameras'][cam_name]['CamMatrix'])
+        intr_mat_dist = np.asarray(cal_json['cameras'][cam_name]['CamMatrixOriginal'])
+        dist_parms = np.asarray(cal_json['cameras'][cam_name]['Distortion'])
+        lens = cal_json['cameras'][cam_name]['Lens']
+
+        return lens, dist_parms, intr_mat_dist, intr_mat_undist
+
+    @classmethod
+    def get_undistort_fn(cls, cal_json=None, sensor=None):
+        lens, dist_parms, intr_mat_dist, intr_mat_undist = cls.get_camera_info(cal_json=cal_json, sensor=sensor)
+
+        def undistort_fn(cvim):
+            return RosUtil.undistort_image(cvim, lens=lens, dist_parms=dist_parms, 
+                    intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
+        
+        return undistort_fn
+
+    @classmethod
+    def sensor_to_vehicle(cls, cal_json=None, sensor=None):
+        cam_name = sensor.rsplit("/", 1)[1]
+        return transform_from_to(cal_json['cameras'][cam_name]['view'], cal_json['vehicle']['view'])
+
+    @classmethod 
+    def __get_marker_lifetime(cls, request):
+        try:
+            marker_lifetime = request.get("marker_lifetime", None)
+            if marker_lifetime is not None:
+                return rospy.Duration.from_sec(marker_lifetime)
+        except Exception:
+            pass
+
+        return None
+
+    @classmethod
+    def get_ros_msg_fn_params(cls, data_type=None, data=None, sensor=None, request=None, transform=None):
+        params = None
+
+        if data_type == cls.IMAGE_DATA_TYPE:
+            params = {"cvim": data, 'transform': transform}
+        elif data_type == cls.PCL_DATA_TYPE:
+            params = dict()
+            for key in data.keys():
+                if "reflectance" in key:
+                    params["reflectance"] =  data[key]
+                elif "points" in key:
+                    params["points"] = data[key]
+
+                if len(params) == 2:
+                    break
+        elif data_type == cls.MARKER_ARRAY_CUBE_DATA_TYPE:
+            lifetime = cls.__get_marker_lifetime(request)
+            params =  {"boxes": data, "ns": sensor, "lifetime": lifetime}
         else:
-            points = npz["pcloud_points"]
+            raise ValueError(f"Unsupported data type: {data_type}")
 
-        return points, reflectance
+        params['transform'] = transform
+        return params
+
+    @classmethod 
+    def get_ros_msg_fn(cls, data_type):
+        if len(cls.__ROS_MSG_FNS) == 0:
+            cls.__ROS_MSG_FNS[cls.IMAGE_DATA_TYPE] = cls.image_msg
+            cls.__ROS_MSG_FNS[cls.PCL_DATA_TYPE] = cls.pcl_dense_msg
+            cls.__ROS_MSG_FNS[cls.MARKER_ARRAY_CUBE_DATA_TYPE] = cls.marker_cube_msg
+            cls.__ROS_MSG_FNS[cls.BUS_DATA_TYPE] = cls.bus_msg
+            
+        return cls.__ROS_MSG_FNS.get(data_type, None)
+       
+    @classmethod 
+    def get_data_load_fn(cls, data_type):
+        return cls.__DATA_LOAD_FNS.get(data_type, None)

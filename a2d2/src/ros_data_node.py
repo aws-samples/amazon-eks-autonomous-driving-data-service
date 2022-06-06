@@ -24,17 +24,13 @@ import logging
 import json
 import os, time
 import threading
-import numpy as np
 
 from util import random_string, validate_data_request, get_s3_resource
 from util import create_manifest
-from util import read_images_from_fs, read_pcl_from_fs
-from view import transform_from_to
 from s3_reader import S3Reader
 from ros_util import RosUtil
 from multiprocessing import Queue
 
-import cv_bridge
 from std_msgs.msg import String
 import rospy
 import subprocess
@@ -42,7 +38,6 @@ import subprocess
 
 class RosDataNode:
     DATA_REQUEST_TOPIC = "/mozart/data_request"
-    BUS_DATA_TYPE = 'a2d2_msgs/Bus'
 
     def __init__(self, config=None):
         self.logger = logging.getLogger("ros_datanode")
@@ -62,7 +57,7 @@ class RosDataNode:
         self.cal_json = json.loads(cal_data)
 
         self.tmp = os.getenv("TMP", default="/tmp")
-        self.img_cv_bridge = cv_bridge.CvBridge()
+        RosUtil.create_cv_brigde()
 
         node_name = "mozart_datanode_{0}".format(random_string(6))
 
@@ -73,28 +68,47 @@ class RosDataNode:
         rospy.spin()
       
 
-    def init_request(self, request):
+    def __init_request(self, request):
         self.manifests = dict() 
         self.sensor_dict = dict()
         self.sensor_list = list()
         self.sensor_active = dict()
         self.sensor_index = 0
         self.round_robin = list()
+        self.sensor_transform = dict()
+        self.sensor_data_type = dict()
 
         self.request = request
         sensors = self.request['sensor_id']
+        lidar_view = self.request.get("lidar_view", "camera")
+        image_request = self.request.get("image", "original")
+        
+        
         for sensor in sensors:
+            data_type = self.request["data_type"][sensor]
+            self.sensor_data_type[sensor] = data_type
             self.manifests[sensor] = create_manifest(request=request, dbconfig=self.dbconfig, sensor_id=sensor)
             self.sensor_dict[sensor] = []
             self.sensor_list.append(sensor)
             self.sensor_active[sensor] = True
+
+            if lidar_view == "vehicle" and ( data_type == RosUtil.PCL_DATA_TYPE or data_type == RosUtil.MARKER_ARRAY_CUBE_DATA_TYPE) :
+                self.sensor_transform[sensor] = RosUtil.sensor_to_vehicle(cal_json=self.cal_json, sensor=sensor)
+            elif  image_request == "undistorted" and data_type == RosUtil.IMAGE_DATA_TYPE:
+                self.sensor_transform[sensor] = RosUtil.get_undistort_fn(cal_json=self.cal_json, sensor=sensor)
+
+        max_rate = self.request.get("max_rate", 0)
+        if max_rate > 0:
+            self.sleep_interval = (len(self.sensor_list)/max_rate)
+        else:
+            self.sleep_interval  = 0
 
         self.ros_publishers = dict()
 
     def __handle_request(self, request):
 
         try:
-            self.init_request(request)
+            self.__init_request(request)
             tasks = []
 
             sensors = self.request["sensor_id"]
@@ -153,6 +167,9 @@ class RosDataNode:
                 sensor = _sensor
                 break
         
+        if self.sleep_interval > 0:
+            time.sleep(self.sleep_interval)
+
         return sensor, msg
 
     def __flush_sensors(self):
@@ -191,18 +208,26 @@ class RosDataNode:
             raise
 
     def __is_bus_sensor(self, sensor=None):
-        return self.request["data_type"][sensor] == RosDataNode.BUS_DATA_TYPE
+        return self.request["data_type"][sensor] == RosUtil.BUS_DATA_TYPE
 
-    def __publish_ros_msg(self, sensor=None, msg=None):
+    def __publish_sensor_data(self, sensor=None, 
+                        ts=None, 
+                        frame_id=None, 
+                        ros_msg_fn=None, 
+                        params=None):
         try:
-            sensor, msg = self.__round_robin_sensor(sensor=sensor, msg=msg)
+            ros_msg = ros_msg_fn(**params)
+            RosUtil.set_ros_msg_header( ros_msg=ros_msg, ts=ts, frame_id=frame_id)
+
+            sensor, msg = self.__round_robin_sensor(sensor=sensor, msg=ros_msg)
             if sensor and msg:
                 self.ros_publishers[sensor].publish(msg)
 
             sensors = [k for k in self.sensor_active.keys() if not self.__is_bus_sensor(k) and self.__is_sensor_alive(k)]
             if (len(self.round_robin) >= len(sensors)) and self.round_robin:
                 self.round_robin.pop(0)
-                
+            
+
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -210,39 +235,16 @@ class RosDataNode:
             self.logger.error(str(exc_value))
             raise
 
-    
-    def __publish_image_msg(self, sensor=None, image=None, image_ts=None, frame_id=None):
-        try:
-            ros_image_msg = self.img_cv_bridge.cv2_to_imgmsg(image)
-            RosUtil.set_ros_msg_header( ros_msg=ros_image_msg, ts=image_ts, frame_id=frame_id)
-            self.__publish_ros_msg(sensor=sensor, msg=ros_image_msg)
-        except BaseException as _:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+    def __publish_sensor_from_fs(self, manifest=None, sensor=None, frame_id=None):
 
-    def __get_camera_info(self, sensor=None):
-        cam_name = sensor.rsplit("/", 1)[1]
-        # get parameters from calibration json 
-       
-        intr_mat_undist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrix'])
-        intr_mat_dist = np.asarray(self.cal_json['cameras'][cam_name]['CamMatrixOriginal'])
-        dist_parms = np.asarray(self.cal_json['cameras'][cam_name]['Distortion'])
-        lens = self.cal_json['cameras'][cam_name]['Lens']
+        data_loader = dict()
+        data = dict() 
+        ts = dict()
+ 
+        data_type = self.sensor_data_type[sensor]
+        ros_msg_fn = RosUtil.get_ros_msg_fn(data_type=data_type)
+        transform =   self.sensor_transform.get(sensor, None)
 
-        return lens, dist_parms, intr_mat_dist, intr_mat_undist
-
-    def __publish_images_from_fs(self, manifest=None, sensor=None, frame_id=None):
-
-        image_reader = dict()
-        image_data = dict() 
-        image_ts = dict()
-
-        image_request = self.request.get("image", "original")
-        if image_request == "undistorted":
-            lens, dist_parms, intr_mat_dist, intr_mat_undist = self.__get_camera_info(sensor=sensor)
-        
         while True:
             files = None
             while not files and manifest.is_open():
@@ -250,55 +252,37 @@ class RosDataNode:
             if not files:
                 break
 
-            count = read_images_from_fs(data_store=self.data_store, files=files, 
-                image_reader=image_reader, image_data=image_data, image_ts=image_ts)
+            count = RosUtil.load_data_from_fs(data_type=data_type, data_store=self.data_store, 
+                data_files=files, data_loader=data_loader, data=data, ts=ts)
         
             for i in range(0, count):
-                image_reader[i].join()
-                if image_request == "undistorted":
-                    image = RosUtil.undistort_image(image=image_data[i], lens=lens, dist_parms=dist_parms, 
-                        intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
-                else:
-                    image = image_data[i]
-                self.__publish_image_msg(sensor=sensor, image=image, image_ts=image_ts[i], frame_id=frame_id)
+                data_loader[i].join()
+                try:
+                    params = RosUtil.get_ros_msg_fn_params(data_type=data_type, data=data[i], 
+                        sensor=sensor, request=self.request, transform=transform)
+                    self.__publish_sensor_data(sensor=sensor, ts=ts[i], frame_id=frame_id, ros_msg_fn=ros_msg_fn, params=params)
+                except BaseException as _:
+                    exc_type, exc_value, exc_traceback = sys.exc_info()
+                    traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                    self.logger.error(str(exc_type))
+                    self.logger.error(str(exc_value))
 
-            if self.request['preview']:
+            if self.request.get('preview', False):
                 break
 
         self.sensor_active[sensor] = False
 
-    def __process_s3_image_files(self, sensor=None, files=None, resp=None, 
-                                frame_id=None,  image_request=None, lens=None, 
-                                dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
-        for f in files:
-            try:
-                path = resp.get(block=True).split(" ", 1)[0]
-                image_data = cv2.imread(path)
-                if image_request == "undistorted":
-                    image = RosUtil.undistort_image(image_data, lens=lens, dist_parms=dist_parms, 
-                                intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
-                else:
-                    image = image_data
-                image_ts = int(f[2])
-                self.__publish_image_msg(sensor=sensor, image=image, image_ts=image_ts, 
-                        frame_id=frame_id)
-                os.remove(path)
-            except BaseException as _:
-                exc_type, exc_value, exc_traceback = sys.exc_info()
-                traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-                self.logger.error(str(exc_type))
-                self.logger.error(str(exc_value))
-
-    def __publish_images_from_s3(self, manifest=None,  sensor=None, frame_id=None):
+    def __publish_sensor_from_s3(self, manifest=None, sensor=None, frame_id=None):
 
         req = Queue()
         resp = Queue()
-
         s3_reader = S3Reader(req, resp)
         s3_reader.start()
 
-        image_request = self.request.get("image", "original")
-        lens, dist_parms, intr_mat_dist, intr_mat_undist = self.__get_camera_info(sensor=sensor) if image_request == "undistorted" else (None, None, None, None)
+        data_type = self.sensor_data_type[sensor]
+        ros_msg_fn = RosUtil.get_ros_msg_fn(data_type=data_type)
+        data_load_fn = RosUtil.get_data_load_fn(data_type=data_type)
+        transform =   self.sensor_transform.get(sensor, None)
 
         while True:
             files = None
@@ -312,133 +296,31 @@ class RosDataNode:
                 key = f[1]
                 req.put(bucket+" "+key)
 
-            self.__process_s3_image_files(sensor=sensor, files=files, resp=resp, frame_id=frame_id, 
-                            image_request=image_request, 
-                            lens=lens, dist_parms=dist_parms, 
-                            intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist)
-
-            if self.request['preview']:
-                break
-
-        req.put("__close__")
-        s3_reader.join(timeout=2)
-        if s3_reader.is_alive():
-            s3_reader.terminate()
-        
-        self.sensor_active[sensor] = False
-
-    def __publish_pcl_msg(self, sensor=None, points=None, reflectance=None, pcl_ts=None, frame_id=None):
-        try:
-            ros_pcl_msg = RosUtil.pcl_dense_msg(points=points, reflectance=reflectance, ts=pcl_ts, frame_id=frame_id)
-            self.__publish_ros_msg(sensor=sensor, msg=ros_pcl_msg)
-        except BaseException as _:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
-
-
-    def __sensor_to_vehicle_matrix(self, sensor):
-        cam_name = sensor.rsplit("/", 1)[1]
-        return transform_from_to(self.cal_json['cameras'][cam_name]['view'], self.cal_json['vehicle']['view'])
-       
-    def __process_s3_pcl_files(self, sensor=None, files=None, resp=None, 
-                                frame_id=None, lidar_view=None, vehicle_transform_matrix=None):
-        for f in files:
-            try:
-                path = resp.get(block=True).split(" ", 1)[0]
-                npz = np.load(path)
-                pcl_ts= int(f[2])
-                points, reflectance = RosUtil.parse_pcl_npz(npz=npz, lidar_view=lidar_view, 
-                        vehicle_transform_matrix=vehicle_transform_matrix)
-                if not np.isnan(points).any():
-                    self.__publish_pcl_msg(sensor=sensor, points=points, reflectance=reflectance, 
-                        pcl_ts=pcl_ts, frame_id=frame_id)
-                os.remove(path)
-            except BaseException as _:
-                exc_type, exc_value, exc_traceback = sys.exc_info()
-                traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-                self.logger.error(str(exc_type))
-                self.logger.error(str(exc_value))
-        
-    def __publish_pcl_from_s3(self, manifest=None,  sensor=None, frame_id=None):
-
-        req = Queue()
-        resp = Queue()
-
-        s3_reader = S3Reader(req, resp)
-        s3_reader.start()
-
-        lidar_view = self.request.get("lidar_view", "camera")
-        vehicle_transform_matrix = self.__sensor_to_vehicle_matrix(sensor=sensor) if lidar_view == "vehicle" else None
-        
-        while True:
-            files = None
-            while not files and manifest.is_open():
-                files = manifest.fetch()
-            if not files:
-                break
-
             for f in files:
-                bucket = f[0]
-                key = f[1]
-                req.put(bucket+" "+key)
+                try:
+                    path = resp.get(block=True).split(" ", 1)[0]
+                    data = data_load_fn(path)
+                    ts = int(f[2])
+                    params = RosUtil.get_ros_msg_fn_params(data_type=data_type, 
+                        data=data, sensor=sensor, request=self.request, transform=transform)
+                    self.__publish_sensor_data(sensor=sensor, ts=ts, frame_id=frame_id, ros_msg_fn=ros_msg_fn, params=params)
 
-            self.__process_s3_pcl_files(sensor=sensor, 
-                    files=files, resp=resp, frame_id=frame_id,
-                    lidar_view=lidar_view, vehicle_transform_matrix=vehicle_transform_matrix)
+                    os.remove(path)
+                except BaseException as _:
+                    exc_type, exc_value, exc_traceback = sys.exc_info()
+                    traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                    self.logger.error(str(exc_type))
+                    self.logger.error(str(exc_value))
 
-            if self.request['preview']:
+            if self.request.get('preview', False):
                 break
 
         req.put("__close__")
         s3_reader.join(timeout=2)
         if s3_reader.is_alive():
             s3_reader.terminate()
-
-        self.sensor_active[sensor] = False
-
-    def __publish_pcl_from_fs(self, manifest=None,  sensor=None,  frame_id=None):
-
-        pcl_reader = dict() 
-        pcl_ts = dict()
-        npz = dict()
         
-        lidar_view = self.request.get("lidar_view", "camera")
-        vehicle_transform_matrix = self.__sensor_to_vehicle_matrix(sensor=sensor) if lidar_view == "vehicle" else None
-        
-        while True:
-            files = None
-            while not files and manifest.is_open():
-                files = manifest.fetch()
-            if not files:
-                break
-
-            count = read_pcl_from_fs(data_store=self.data_store, files=files, pcl_reader=pcl_reader, pcl_ts=pcl_ts, npz=npz)
-            for i in range(0, count):
-                pcl_reader[i].join()
-                points, reflectance = RosUtil.parse_pcl_npz(npz=npz[i], lidar_view=lidar_view, 
-                    vehicle_transform_matrix=vehicle_transform_matrix)
-                if not np.isnan(points).any():
-                    self.__publish_pcl_msg(sensor=sensor, points=points, reflectance=reflectance, 
-                        pcl_ts=pcl_ts[i], frame_id=frame_id)
-
-            if self.request['preview']:
-                break
-
         self.sensor_active[sensor] = False
-
-    def __publish_images(self, manifest=None,  sensor=None, frame_id=None):
-        if self.data_store['input'] != 's3':
-            self.__publish_images_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
-        else:
-            self.__publish_images_from_s3(manifest=manifest, sensor=sensor, frame_id=frame_id)
-
-    def __publish_pcl(self, manifest=None,   sensor=None, frame_id=None):
-        if self.data_store['input'] != 's3':
-            self.__publish_pcl_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
-        else:
-            self.__publish_pcl_from_s3(manifest=manifest, sensor=sensor, frame_id=frame_id)
 
     def __publish_bus(self, manifest=None, sensor=None,  frame_id=None):
 
@@ -451,15 +333,16 @@ class RosDataNode:
         
             for row in rows:
                 try:
-                    ros_msg = RosUtil.bus_msg(row=row, frame_id=frame_id)
-                    self.__publish_ros_msg(sensor=sensor, msg=ros_msg)
+                    params = {"row": row}
+                    self.__publish_sensor_data(sensor=sensor, ts=row[2], frame_id=frame_id, 
+                        ros_msg_fn=RosUtil.bus_msg, params=params)
                 except BaseException as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
                     self.logger.error(str(exc_type))
                     self.logger.error(str(exc_value))
 
-            if self.request['preview']:
+            if self.request.get('preview', False):
                 break
         
         self.sensor_active[sensor] = False
@@ -467,12 +350,13 @@ class RosDataNode:
     def __publish_sensor(self, manifest=None, sensor=None, frame_id=None):
         try:
             data_type = self.request["data_type"][sensor]
-            if data_type ==  'sensor_msgs/Image':
-                self.__publish_images(manifest=manifest, sensor=sensor, frame_id=frame_id)
-            elif data_type == 'sensor_msgs/PointCloud2':
-                self.__publish_pcl(manifest=manifest,  sensor=sensor, frame_id=frame_id)
-            elif data_type ==  RosDataNode.BUS_DATA_TYPE:
+            if data_type ==  RosUtil.BUS_DATA_TYPE:
                 self.__publish_bus(manifest=manifest, sensor=sensor, frame_id=frame_id)
+            else:
+                if self.data_store['input'] != 's3':
+                    self.__publish_sensor_from_fs(manifest=manifest, sensor=sensor, frame_id=frame_id)
+                else:
+                    self.__publish_sensor_from_s3(manifest=manifest, sensor=sensor, frame_id=frame_id)
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -498,7 +382,6 @@ class RosDataNode:
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
 
-            
 import argparse
 
 if __name__ == "__main__":

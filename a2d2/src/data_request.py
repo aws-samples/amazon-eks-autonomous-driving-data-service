@@ -21,11 +21,10 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process, Lock, Value
-import threading, logging, time
+import logging
 import json
-import random
-import string
-import time
+from urllib import request
+
 
 from kafka import KafkaProducer, KafkaAdminClient
 from util import random_string
@@ -52,7 +51,11 @@ class DataRequest(Process):
 
             response_topic = random_string()
             s3 = self.request["accept"].startswith("s3/")
-            t = RosbagConsumer(servers=self.servers, response_topic=response_topic, s3=s3, use_time=self.use_time)
+            t = RosbagConsumer(servers=self.servers, 
+                response_topic=response_topic, 
+                s3=s3, use_time=self.use_time, 
+                no_playback=self.request.get("no_playback", False),
+                no_delete = self.request.get("no_delete", False))
             t.start()
 
             self.request["response_topic"] = response_topic

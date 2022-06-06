@@ -43,7 +43,12 @@ from ros_util import RosUtil
 
 class RosbagConsumer(Process):
 
-    def __init__(self, servers=None, response_topic=None, s3=False, use_time=None):
+    def __init__(self, servers=None, 
+        response_topic=None, 
+        s3=False, 
+        use_time=None,
+        no_playback=False,
+        no_delete=False):
         Process.__init__(self)
         self.logger = logging.getLogger("rosbag_consumer")
         logging.basicConfig(
@@ -54,22 +59,33 @@ class RosbagConsumer(Process):
         self.response_topic = response_topic
         self.tmp = os.getenv("TMP", default="/tmp")
         self.use_time = use_time
+        
+        self.no_playback = no_playback
+        if self.no_playback:
+            self.no_delete = True
+            self.logger.info("Forcing 'no_delete' to True because 'no_playback' is True")
+        else:
+            self.no_delete = no_delete
 
+        self.logger.info(f"Setting 'no_playback' to {no_playback}")
+        self.logger.info(f"Setting 'no_delete' to {no_delete}")
+        
         self.s3 = s3
-        if self.s3:
+        if self.s3 and not self.no_playback:
             self.s3_read_req = Queue()
             self.s3_read_resp = Queue()
             self.s3_delete_req = Queue()
 
-        if not self.s3:
+        if not self.s3 and not self.no_delete:
             self.clean_up = set()
 
-        self.ros_publishers = dict()
+        if not self.no_playback:
+            self.ros_publishers = dict()
     
     def __get_ros_publishers(self, reader):
         topics_types = RosUtil.get_topics_types(reader)
         for ros_topic, data_type in topics_types.items():
-            if not ros_topic in self.ros_publishers:
+            if  ros_topic not in self.ros_publishers:
                 ros_data_class = RosUtil.get_data_class(data_type)
                 self.ros_publishers[ros_topic] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
                 time.sleep(1)
@@ -93,7 +109,9 @@ class RosbagConsumer(Process):
                 bag_info = msg.split(" ")
                 bag_path = bag_info[0]
                 self.__publish_msgs(bag_path)
-                self.s3_delete_req.put(msg, block=False)
+
+                if not self.no_delete:
+                    self.s3_delete_req.put(msg, block=False)
             except Empty:
                 pass
         except Exception as _:
@@ -114,7 +132,9 @@ class RosbagConsumer(Process):
             bag_path = json_msg['bag_path']
             self.__publish_msgs(bag_path)
             bag_dir = bag_path.rsplit('/', 1)[0]
-            self.clean_up.add(bag_dir)
+
+            if not self.no_delete:
+                self.clean_up.add(bag_dir)
 
     def run(self):
         
@@ -129,10 +149,13 @@ class RosbagConsumer(Process):
                                 client_id=random_string())
 
             if self.s3:
-                self.s3_reader = S3Reader(self.s3_read_req, self.s3_read_resp)
-                self.s3_deleter = S3Deleter(self.s3_delete_req)
-                self.s3_reader.start()
-                self.s3_deleter.start()
+                if not self.no_playback:
+                    self.s3_reader = S3Reader(self.s3_read_req, self.s3_read_resp)
+
+                if not self.no_delete:
+                    self.s3_deleter = S3Deleter(self.s3_delete_req)
+                    self.s3_reader.start()
+                    self.s3_deleter.start()
 
             for msg in consumer:
                 try:
@@ -143,7 +166,11 @@ class RosbagConsumer(Process):
                         print(json_str)
                         break
 
-                    self.__publish_bag(json_msg)
+                    if not self.no_playback:
+                        self.__publish_bag(json_msg)
+                    
+                    if self.no_playback or self.no_delete:
+                        print(json_str)
                 except Exception as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -151,22 +178,26 @@ class RosbagConsumer(Process):
                     print(str(exc_value))
 
             if self.s3:
-                self.s3_read_req.put("__close__")
-                time.sleep(5)
-                self.__read_s3(drain=True)
-                
-                self.s3_reader.join(timeout=2)
-                if self.s3_reader.is_alive():
-                    self.s3_reader.terminate()
 
-                self.s3_delete_req.put("__close__")
-                time.sleep(5)
-                self.s3_deleter.join(timeout=2)
-                if self.s3_deleter.is_alive():
-                    self.s3_deleter.terminate()
+                if not self.no_playback:
+                    self.s3_read_req.put("__close__")
+                    time.sleep(5)
+                    self.__read_s3(drain=True)
+                    
+                    self.s3_reader.join(timeout=2)
+                    if self.s3_reader.is_alive():
+                        self.s3_reader.terminate()
+
+                if not self.no_delete:
+                    self.s3_delete_req.put("__close__")
+                    time.sleep(5)
+                    self.s3_deleter.join(timeout=2)
+                    if self.s3_deleter.is_alive():
+                        self.s3_deleter.terminate()
             else:
-                for dir in self.clean_up:
-                    shutil.rmtree(dir, ignore_errors=True)
+                if not self.no_delete:
+                    for dir in self.clean_up:
+                        shutil.rmtree(dir, ignore_errors=True)
 
             consumer.close()
             admin = KafkaAdminClient(bootstrap_servers=self.servers)

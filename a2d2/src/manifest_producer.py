@@ -83,7 +83,7 @@ class ManifestProducer(Process):
                 producer.send(response_topic, json.dumps(json_msg).encode('utf-8'))
                 producer.flush()
 
-                if self.request['preview']:
+                if self.request.get('preview', False):
                     break
 
             json_msg = {"__close__": True}  
