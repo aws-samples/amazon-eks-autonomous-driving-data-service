@@ -18,6 +18,11 @@ a2d2:
   metric:
     name: "cpu"
     average: "50"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 300
+    scaleDown:
+      stabilizationWindowSeconds: 3600
   config:
     dir: "/etc/config"
     path: "a2d2-rosbridge.conf"

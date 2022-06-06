@@ -98,6 +98,11 @@ spec:
       target:
         type: Utilization
         averageUtilization: {{ .Values.a2d2.metric.average }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.a2d2.behavior.scaleDown.stabilizationWindowSeconds }} 
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.a2d2.behavior.scaleUp.stabilizationWindowSeconds }} 
 ---
 apiVersion: v1
 kind: Service
