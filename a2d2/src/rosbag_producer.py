@@ -37,11 +37,6 @@ from util import get_s3_client, mkdir_p, create_manifest
 from s3_reader import S3Reader
 from ros_util import RosUtil
 
-class Qmsg:
-    def __init__(self, msg=None, ts=None):
-        self.msg = msg
-        self.ts = ts
-
 class RosbagProducer(Process):
     
     def __init__(self, dbconfig=None, servers=None,
@@ -200,7 +195,7 @@ class RosbagProducer(Process):
     
     def __round_robin_sensor(self,  sensor=None, msg=None):
         # add message to sensor queue
-        self.sensor_dict[sensor].append(Qmsg(msg=msg))
+        self.sensor_dict[sensor].append(msg)
                 
         msg = None
         sensor = None
@@ -214,8 +209,7 @@ class RosbagProducer(Process):
                 continue
 
             if self.sensor_dict[_sensor]:
-                front = self.sensor_dict[_sensor].pop(0)
-                msg = front.msg
+                msg = self.sensor_dict[_sensor].pop(0)
                 sensor = _sensor
                 break
         
@@ -242,8 +236,7 @@ class RosbagProducer(Process):
                 _sensor = self.sensor_list[ self.sensor_index ]
                 
                 if self.sensor_dict[_sensor]:
-                    front = self.sensor_dict[_sensor].pop(0)
-                    msg = front.msg
+                    msg = self.sensor_dict[_sensor].pop(0)
                     sensor = _sensor
                 else:
                     _nsensors_flushed += 1
