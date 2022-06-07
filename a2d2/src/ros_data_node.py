@@ -187,8 +187,7 @@ class RosDataNode:
                 _sensor = self.sensor_list[ self.sensor_index ]
                 
                 if self.sensor_dict[_sensor]:
-                    front = self.sensor_dict[_sensor].pop(0)
-                    msg = front.msg
+                    msg = self.sensor_dict[_sensor].pop(0)
                     sensor = _sensor
                 else:
                     _nsensors_flushed += 1
@@ -222,6 +221,8 @@ class RosDataNode:
             sensor, msg = self.__round_robin_sensor(sensor=sensor, msg=ros_msg)
             if sensor and msg:
                 self.ros_publishers[sensor].publish(msg)
+                if not self.__is_bus_sensor(sensor):
+                    self.round_robin.append(sensor)
 
             sensors = [k for k in self.sensor_active.keys() if not self.__is_bus_sensor(k) and self.__is_sensor_alive(k)]
             if (len(self.round_robin) >= len(sensors)) and self.round_robin:
