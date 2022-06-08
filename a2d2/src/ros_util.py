@@ -114,6 +114,10 @@ class RosUtil(object):
         return "MarkerArray" in str(type(ros_msg))
 
     @classmethod
+    def get_ros_msg_ts_nsecs(cls, ros_msg):
+        return ros_msg.header.stamp.secs * 1000000 + int(ros_msg.header.stamp.nsecs/1000)
+        
+    @classmethod
     def set_ros_msg_received_time(cls, ros_msg):
         _ts = time.time()*1000000
         _stamp = divmod(_ts, 1000000 ) #stamp in micro secs
@@ -471,3 +475,19 @@ class RosUtil(object):
     @classmethod 
     def get_data_load_fn(cls, data_type):
         return cls.__DATA_LOAD_FNS.get(data_type, None)
+
+    @classmethod
+    def drain_ros_msgs(cls, ros_msg_list=None, drain_ts=None):
+        ros_msgs = []
+
+        while ros_msg_list:
+            next_ros_msg = ros_msg_list[0]
+            next_ros_msg_ts_ns = RosUtil.get_ros_msg_ts_nsecs(next_ros_msg)
+
+            if next_ros_msg_ts_ns <= drain_ts:
+                msg = ros_msg_list.pop(0)
+                ros_msgs.append(msg)
+            else:
+                break
+
+        return ros_msgs

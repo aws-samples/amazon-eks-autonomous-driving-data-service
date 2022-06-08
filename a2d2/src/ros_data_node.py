@@ -24,6 +24,7 @@ import logging
 import json
 import os, time
 import threading
+import math
 
 from util import random_string, validate_data_request, get_s3_resource
 from util import create_manifest
@@ -104,6 +105,8 @@ class RosDataNode:
             self.sleep_interval  = 0
 
         self.ros_publishers = dict()
+        self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else math.inf
+        self.sync_bus = self.request.get("sync_bus", True)
 
     def __handle_request(self, request):
 
@@ -162,27 +165,31 @@ class RosDataNode:
             if _sensor in self.round_robin and any([True for k in self.sensor_active.keys() if k not in self.round_robin and self.__is_sensor_alive(k)]):
                 continue
 
-            if self.sensor_dict[_sensor]:
-                msg = self.sensor_dict[_sensor].pop(0)
+            sensor_msg_list = self.sensor_dict[_sensor]
+            if sensor_msg_list:
+                if self.__is_bus_sensor(_sensor) and self.sync_bus:
+                    msg_list = RosUtil.drain_ros_msgs( ros_msg_list=sensor_msg_list,  drain_ts=self.latest_msg_ts)
+                    if msg_list:
+                        msg = msg_list[-1]
+                    else:
+                       continue
+                else:
+                    msg = sensor_msg_list.pop(0)
                 sensor = _sensor
                 break
-        
-        if self.sleep_interval > 0:
-            time.sleep(self.sleep_interval)
 
         return sensor, msg
 
     def __flush_sensors(self):
         try:
             _nsensors = len(self.sensor_list)
-              
-            msg = None
-            sensor = None
-
             _nsensors_flushed = 0
+
             # rotate through sensors and flush them
-            self.logger.info("Flushing ROS sensors")
-            for _ in range(_nsensors):
+            self.logger.info(f"Flushing  {_nsensors} sensors")
+            while True:
+                msg = None
+                sensor = None
                 self.sensor_index = (self.sensor_index + 1) % _nsensors
                 _sensor = self.sensor_list[ self.sensor_index ]
                 
@@ -197,7 +204,8 @@ class RosDataNode:
                 
                 if _nsensors == _nsensors_flushed:
                     break
-            self.logger.info("Flushed ROS sensors")
+
+            self.logger.info(f"Flushed {_nsensors_flushed} sensors")
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -222,6 +230,10 @@ class RosDataNode:
             if sensor and msg:
                 self.ros_publishers[sensor].publish(msg)
                 if not self.__is_bus_sensor(sensor):
+                    msg_ts = RosUtil.get_ros_msg_ts_nsecs(msg)
+                    if msg_ts > self.latest_msg_ts or self.latest_msg_ts == math.inf:
+                        self.latest_msg_ts = msg_ts
+
                     self.round_robin.append(sensor)
 
             sensors = [k for k in self.sensor_active.keys() if not self.__is_bus_sensor(k) and self.__is_sensor_alive(k)]
@@ -271,6 +283,9 @@ class RosDataNode:
             if self.request.get('preview', False):
                 break
 
+            if self.sleep_interval > 0:
+                time.sleep(self.sleep_interval)
+
         self.sensor_active[sensor] = False
 
     def __publish_sensor_from_s3(self, manifest=None, sensor=None, frame_id=None):
@@ -315,6 +330,9 @@ class RosDataNode:
 
             if self.request.get('preview', False):
                 break
+
+            if self.sleep_interval > 0:
+                time.sleep(self.sleep_interval)
 
         req.put("__close__")
         s3_reader.join(timeout=2)

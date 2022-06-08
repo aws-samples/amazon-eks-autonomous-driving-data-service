@@ -28,6 +28,7 @@ import os
 import threading
 import time
 import signal
+import math
 
 import rosbag
 
@@ -124,6 +125,8 @@ class RosbagProducer(Process):
             self.sleep_interval  = 0
 
         self.ros_publishers = dict()
+        self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else math.inf
+        self.sync_bus = self.request.get("sync_bus", True)
 
 
     def __create_bag_dir(self):
@@ -176,19 +179,24 @@ class RosbagProducer(Process):
             self.bag = None
             self.bag_path = None
 
-    def __write_ros_msg_to_bag(self, sensor=None, msg=None, s3_client=None, flush=False):
+    def __write_ros_msg_to_bag(self, sensor=None, msg=None, s3_client=None):
 
         if not self.bag:
             self.__open_bag()
         topic = self.request['ros_topic'][sensor]
         self.bag.write(topic, msg)
 
-        if not flush and not self.__is_bus_sensor(sensor):
+        if not self.__is_bus_sensor(sensor):
+            msg_ts = RosUtil.get_ros_msg_ts_nsecs(msg)
+            if msg_ts > self.latest_msg_ts or self.latest_msg_ts == math.inf:
+                self.latest_msg_ts = msg_ts
+
             self.round_robin.append(sensor)
-            if self.multipart:
-                self.msg_count += 1
-                if self.msg_count % self.chunk_count == 0:
-                    self.__close_bag(s3_client=s3_client)
+
+        if self.multipart:
+            self.msg_count += 1
+            if self.msg_count % self.chunk_count == 0:
+                self.__close_bag(s3_client=s3_client)
 
     def __is_sensor_alive(self, sensor):
         return  self.sensor_dict[sensor] or self.sensor_active[sensor]
@@ -208,14 +216,19 @@ class RosbagProducer(Process):
             if _sensor in self.round_robin and any([True for k in self.sensor_active.keys() if k not in self.round_robin and self.__is_sensor_alive(k)]):
                 continue
 
-            if self.sensor_dict[_sensor]:
-                msg = self.sensor_dict[_sensor].pop(0)
+            sensor_msg_list = self.sensor_dict[_sensor]
+            if sensor_msg_list:
+                if self.__is_bus_sensor(_sensor) and self.sync_bus:
+                    msg_list = RosUtil.drain_ros_msgs( ros_msg_list=sensor_msg_list,  drain_ts=self.latest_msg_ts)
+                    if msg_list:
+                        msg = msg_list[-1]
+                    else:
+                        continue
+                else:
+                    msg = sensor_msg_list.pop(0)
                 sensor = _sensor
                 break
         
-        if self.sleep_interval > 0:
-            time.sleep(self.sleep_interval)
-
         return sensor, msg
 
     def __flush_bag(self):
@@ -225,13 +238,13 @@ class RosbagProducer(Process):
 
             _nsensors = len(self.sensor_list)
               
-            msg = None
-            sensor = None
-
             _nsensors_flushed = 0
             # rotate through sensors and flush them to bag
-            self.logger.info("Flushing  ROS sensors to bag")
-            for _ in range(_nsensors):
+            self.logger.info(f"Flushing  {_nsensors} sensors to bag")
+            while True:
+                msg = None
+                sensor = None
+
                 self.sensor_index = (self.sensor_index + 1) % _nsensors
                 _sensor = self.sensor_list[ self.sensor_index ]
                 
@@ -242,11 +255,12 @@ class RosbagProducer(Process):
                     _nsensors_flushed += 1
 
                 if sensor and msg:
-                    self.__write_ros_msg_to_bag(sensor=sensor, msg=msg, s3_client=None, flush=True)
+                    self.__write_ros_msg_to_bag(sensor=sensor, msg=msg, s3_client=None)
                 
                 if _nsensors == _nsensors_flushed:
                     break
-            self.logger.info("Flushed ROS sensors to bag")
+
+            self.logger.info(f"Flushed {_nsensors_flushed} sensors to bag")
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -322,6 +336,9 @@ class RosbagProducer(Process):
             if self.request.get('preview', False):
                 break
 
+            if self.sleep_interval > 0:
+                time.sleep(self.sleep_interval)
+
         self.sensor_active[sensor] = False
 
     def __record_sensor_from_s3(self, manifest=None, sensor=None, frame_id=None):
@@ -368,6 +385,9 @@ class RosbagProducer(Process):
 
             if self.request.get('preview', False):
                 break
+
+            if self.sleep_interval > 0:
+                time.sleep(self.sleep_interval)
 
         req.put("__close__")
         s3_reader.join(timeout=2)
