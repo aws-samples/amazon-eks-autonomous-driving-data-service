@@ -182,30 +182,38 @@ class RosDataNode:
 
     def __flush_sensors(self):
         try:
-            _nsensors = len(self.sensor_list)
-            _nsensors_flushed = 0
-
+            _nsensors = len(self.sensor_list) 
+            flushed = []
             # rotate through sensors and flush them
             self.logger.info(f"Flushing  {_nsensors} sensors")
-            while True:
+            while len(flushed) < _nsensors:
                 msg = None
                 sensor = None
+
                 self.sensor_index = (self.sensor_index + 1) % _nsensors
                 _sensor = self.sensor_list[ self.sensor_index ]
                 
-                if self.sensor_dict[_sensor]:
-                    msg = self.sensor_dict[_sensor].pop(0)
+                sensor_msg_list = self.sensor_dict[_sensor]
+                if sensor_msg_list:
+                    if self.__is_bus_sensor(_sensor) and self.sync_bus:
+                        msg_list = RosUtil.drain_ros_msgs( ros_msg_list=sensor_msg_list,  drain_ts=self.latest_msg_ts)
+                        if msg_list:
+                            msg = msg_list[-1]
+                            
+                    if not msg:
+                        msg = sensor_msg_list.pop(0)
                     sensor = _sensor
                 else:
-                    _nsensors_flushed += 1
+                    if _sensor not in flushed:
+                        flushed.append(_sensor)
 
                 if sensor and msg:
-                    self.ros_publishers[sensor].publish(msg)
-                
-                if _nsensors == _nsensors_flushed:
-                    break
+                    self.__publish_ros_msg(ros_msg=msg, sensor=sensor)
+            
+                if self.sleep_interval > 0:
+                    time.sleep(self.sleep_interval)
 
-            self.logger.info(f"Flushed {_nsensors_flushed} sensors")
+            self.logger.info(f"Flushed{len(flushed)} sensors")
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -216,6 +224,15 @@ class RosDataNode:
 
     def __is_bus_sensor(self, sensor=None):
         return self.request["data_type"][sensor] == RosUtil.BUS_DATA_TYPE
+
+    def __publish_ros_msg(self, ros_msg=None, sensor=None):
+        self.ros_publishers[sensor].publish(ros_msg)
+        if not self.__is_bus_sensor(sensor):
+            msg_ts = RosUtil.get_ros_msg_ts_nsecs(ros_msg)
+            if msg_ts > self.latest_msg_ts or self.latest_msg_ts == math.inf:
+                self.latest_msg_ts = msg_ts
+
+            self.round_robin.append(sensor)
 
     def __publish_sensor_data(self, sensor=None, 
                         ts=None, 
@@ -228,19 +245,11 @@ class RosDataNode:
 
             sensor, msg = self.__round_robin_sensor(sensor=sensor, msg=ros_msg)
             if sensor and msg:
-                self.ros_publishers[sensor].publish(msg)
-                if not self.__is_bus_sensor(sensor):
-                    msg_ts = RosUtil.get_ros_msg_ts_nsecs(msg)
-                    if msg_ts > self.latest_msg_ts or self.latest_msg_ts == math.inf:
-                        self.latest_msg_ts = msg_ts
-
-                    self.round_robin.append(sensor)
+                self.__publish_ros_msg(ros_msg=msg, sensor=sensor)
 
             sensors = [k for k in self.sensor_active.keys() if not self.__is_bus_sensor(k) and self.__is_sensor_alive(k)]
             if (len(self.round_robin) >= len(sensors)) and self.round_robin:
                 self.round_robin.pop(0)
-            
-
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)

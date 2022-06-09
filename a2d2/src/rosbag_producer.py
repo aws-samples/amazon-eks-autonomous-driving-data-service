@@ -236,31 +236,38 @@ class RosbagProducer(Process):
             if self.bag_lock:
                 self.bag_lock.acquire()
 
-            _nsensors = len(self.sensor_list)
-              
-            _nsensors_flushed = 0
+            _nsensors = len(self.sensor_list) 
+            flushed = []
             # rotate through sensors and flush them to bag
             self.logger.info(f"Flushing  {_nsensors} sensors to bag")
-            while True:
+            while len(flushed) < _nsensors:
                 msg = None
                 sensor = None
 
                 self.sensor_index = (self.sensor_index + 1) % _nsensors
                 _sensor = self.sensor_list[ self.sensor_index ]
                 
-                if self.sensor_dict[_sensor]:
-                    msg = self.sensor_dict[_sensor].pop(0)
+                sensor_msg_list = self.sensor_dict[_sensor]
+                if sensor_msg_list:
+                    if self.__is_bus_sensor(_sensor) and self.sync_bus:
+                        msg_list = RosUtil.drain_ros_msgs( ros_msg_list=sensor_msg_list,  drain_ts=self.latest_msg_ts)
+                        if msg_list:
+                            msg = msg_list[-1]
+                            
+                    if not msg:
+                        msg = sensor_msg_list.pop(0)
                     sensor = _sensor
                 else:
-                    _nsensors_flushed += 1
+                    if _sensor not in flushed:
+                        flushed.append(_sensor)
 
                 if sensor and msg:
                     self.__write_ros_msg_to_bag(sensor=sensor, msg=msg, s3_client=None)
                 
-                if _nsensors == _nsensors_flushed:
-                    break
+                if self.sleep_interval > 0:
+                    time.sleep(self.sleep_interval)
 
-            self.logger.info(f"Flushed {_nsensors_flushed} sensors to bag")
+            self.logger.info(f"Flushed {len(flushed)} sensors to bag")
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -486,7 +493,7 @@ class RosbagProducer(Process):
     def __exit_gracefully(self, signum, frame):
     
         try:
-            self.logger.error("\nReceived {} signal".format(self.signals[signum]))
+            self.logger.error(f"Received {signum} signal")
 
             json_msg = {"__close__": True} 
             resp_topic = self.request['response_topic']
