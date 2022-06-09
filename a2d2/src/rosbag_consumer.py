@@ -21,6 +21,7 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process,Queue
+
 try:
     from queue import Empty # For Python 3.x
 except ImportError:
@@ -34,9 +35,10 @@ import rospy
 
 import os
 import shutil
+import signal
 
-from kafka import KafkaConsumer, KafkaAdminClient
-from util import random_string,  is_close_msg
+from kafka import KafkaConsumer
+from util import random_string, delete_kafka_topics, send_kafka_msg, is_close_msg
 from s3_reader import S3Reader
 from s3_deleter import S3Deleter
 from ros_util import RosUtil
@@ -67,8 +69,8 @@ class RosbagConsumer(Process):
         else:
             self.no_delete = no_delete
 
-        self.logger.info(f"Setting 'no_playback' to {no_playback}")
-        self.logger.info(f"Setting 'no_delete' to {no_delete}")
+        self.logger.info("Setting 'no_playback' to {}".format(no_playback))
+        self.logger.info("Setting 'no_delete' to {}".format(no_delete))
         
         self.s3 = s3
         if self.s3 and not self.no_playback:
@@ -81,6 +83,10 @@ class RosbagConsumer(Process):
 
         if not self.no_playback:
             self.ros_publishers = dict()
+
+        signal.signal(signal.SIGINT, self.__exit_gracefully)
+        signal.signal(signal.SIGTERM, self.__exit_gracefully)
+
     
     def __get_ros_publishers(self, reader):
         topics_types = RosUtil.get_topics_types(reader)
@@ -200,12 +206,14 @@ class RosbagConsumer(Process):
                         shutil.rmtree(dir, ignore_errors=True)
 
             consumer.close()
-            admin = KafkaAdminClient(bootstrap_servers=self.servers)
-            admin.delete_topics([self.response_topic])
-            admin.close()
+            delete_kafka_topics(bootstrap_servers=self.servers, kafka_topics=[self.response_topic])
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             print(str(exc_type))
             print(str(exc_value))
+    
+    def __exit_gracefully(self, signum, frame):
+        self.logger.error("Received {} signal".format(signum))
+        sys.exit(0)

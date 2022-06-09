@@ -46,7 +46,7 @@ class RosDataNode:
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
             level=logging.INFO)
 
-        self.logger.info(f"Start Rosbridge server")
+        self.logger.info("Start Rosbridge server")
         subprocess.Popen(["roslaunch", "rosbridge_server", "rosbridge_websocket.launch"])
        
         self.dbconfig=config['database']
@@ -62,7 +62,7 @@ class RosDataNode:
 
         node_name = "mozart_datanode_{0}".format(random_string(6))
 
-        self.logger.info(f"Init ROS node: {node_name}, future log messages will be in ROS node log")
+        self.logger.info("Init ROS node: {}, future log messages will be in ROS node log".format(node_name))
         rospy.init_node(node_name)
         rospy.Subscriber(RosDataNode.DATA_REQUEST_TOPIC, String, self.data_request_cb)
 
@@ -185,7 +185,7 @@ class RosDataNode:
             _nsensors = len(self.sensor_list) 
             flushed = []
             # rotate through sensors and flush them
-            self.logger.info(f"Flushing  {_nsensors} sensors")
+            self.logger.info("Flushing  {} sensors".format(_nsensors))
             while len(flushed) < _nsensors:
                 msg = None
                 sensor = None
@@ -213,7 +213,7 @@ class RosDataNode:
                 if self.sleep_interval > 0:
                     time.sleep(self.sleep_interval)
 
-            self.logger.info(f"Flushed{len(flushed)} sensors")
+            self.logger.info("Flushed{} sensors".format(len(flushed)))
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()

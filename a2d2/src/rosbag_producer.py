@@ -34,7 +34,7 @@ import rosbag
 
 from kafka import KafkaProducer
 from util import random_string, get_s3_resource
-from util import get_s3_client, mkdir_p, create_manifest
+from util import get_s3_client, mkdir_p, create_manifest, is_cancel_msg, send_kafka_msg
 from s3_reader import S3Reader
 from ros_util import RosUtil
 
@@ -239,7 +239,7 @@ class RosbagProducer(Process):
             _nsensors = len(self.sensor_list) 
             flushed = []
             # rotate through sensors and flush them to bag
-            self.logger.info(f"Flushing  {_nsensors} sensors to bag")
+            self.logger.info("Flushing  {} sensors to bag".format(_nsensors))
             while len(flushed) < _nsensors:
                 msg = None
                 sensor = None
@@ -267,7 +267,7 @@ class RosbagProducer(Process):
                 if self.sleep_interval > 0:
                     time.sleep(self.sleep_interval)
 
-            self.logger.info(f"Flushed {len(flushed)} sensors to bag")
+            self.logger.info("Flushed {} sensors to bag".format(len(flushed)))
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -444,11 +444,30 @@ class RosbagProducer(Process):
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
 
+
+    def __close(self):
+        try:
+            resp_topic = self.request['response_topic']
+            json_msg = {"__close__": True} 
+            self.producer.send(resp_topic, json.dumps(json_msg).encode('utf-8'))
+
+            self.producer.flush()
+            self.producer.close()
+        except Exception as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
+        finally:
+            self.logger.info("Completed request:"+resp_topic)
+            sys.exit(0)
+
     def run(self):
 
         try:
-            self.producer = KafkaProducer(bootstrap_servers=self.servers, 
-                    client_id=random_string())
+            resp_topic = self.request['response_topic']
+            self.logger.info("Start request:"+ resp_topic)
+            self.producer = KafkaProducer(bootstrap_servers=self.servers, client_id=random_string())
 
             self.__create_bag_dir()
 
@@ -476,14 +495,8 @@ class RosbagProducer(Process):
 
             self.logger.info("Close ROS bag")
             self.__close_bag()
-
-            json_msg = {"__close__": True} 
-            resp_topic = self.request['response_topic']
-            self.producer.send(resp_topic, json.dumps(json_msg).encode('utf-8'))
-
-            self.producer.flush()
-            self.producer.close()
-            print("completed request:"+resp_topic)
+            
+            self.__close()
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -491,19 +504,5 @@ class RosbagProducer(Process):
             self.logger.error(str(exc_value))
         
     def __exit_gracefully(self, signum, frame):
-    
-        try:
-            self.logger.error(f"Received {signum} signal")
-
-            json_msg = {"__close__": True} 
-            resp_topic = self.request['response_topic']
-            self.producer.send(resp_topic, json.dumps(json_msg).encode('utf-8'))
-
-            self.producer.flush()
-            self.producer.close()
-            self.logger.error("aborted request:"+resp_topic)
-        except Exception as _:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+        self.logger.info("Received {} signal".format(signum))
+        self.__close()

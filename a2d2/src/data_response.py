@@ -56,7 +56,9 @@ class DataResponse(Process):
                     data_store=self.data_store, calibration=self.calibration)
 
             t.start()
+            self.logger.info("Waiting for RosbagProducer to complete")
             t.join()
+            self.logger.info("RosbagProducer completed")
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -69,7 +71,9 @@ class DataResponse(Process):
                     servers=self.servers, request=self.request)
 
             t.start()
+            self.logger.info("Waiting for ManifestProducer to complete")
             t.join()
+            self.logger.info("ManifestProducer completed")
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)

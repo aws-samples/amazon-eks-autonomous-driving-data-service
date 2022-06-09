@@ -24,6 +24,8 @@ import logging
 from data_request import DataRequest
 from util import validate_data_request
 import json
+import time
+import signal
 
 class DataClient():
     def __init__(self, config):
@@ -33,23 +35,27 @@ class DataClient():
             level=logging.INFO)
         self.logger = logging.getLogger("data_client")
 
-        
+        signal.signal(signal.SIGINT, self.__exit_gracefully)
+        signal.signal(signal.SIGTERM, self.__exit_gracefully)
+
+        self.__tasks = []
+
     def request_data(self):
 
         try:
-            tasks = []
-
             requests = self.config["requests"]
             use_time = config.get("use_time", "received")
             for request in requests:
                 self.logger.info("validating data request {0}".format(request))
                 validate_data_request(request)
                 t = DataRequest(servers=self.config["servers"], request=request, use_time=use_time)
-                tasks.append(t)
+                self.__tasks.append(t)
                 t.start()
 
-            for t in tasks:
+            for t in self.__tasks:
                 t.join()
+            
+            self.__tasks.clear()
 
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -57,12 +63,20 @@ class DataClient():
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
 
+    def __exit_gracefully(self, signum, frame):
+        self.logger.error("Received {} signal".format(signum))
+
+        for t in self.__tasks:
+            t.terminate()
+        self.__tasks.clear()
+        sys.exit(0)
+        
 def main(config):
     
     try:
         delay = int(config["delay"])
         time.sleep(delay)
-    except:
+    except Exception:
         pass
 
     client = DataClient(config)

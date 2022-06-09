@@ -31,6 +31,7 @@ import json
 
 from manifest_dataset import ManifestDataset
 from bus_dataset import BusDataset
+from kafka import KafkaConsumer, KafkaProducer, KafkaAdminClient
 
 def get_s3_client():
     s3_client = None
@@ -75,14 +76,10 @@ def random_string(length=16):
     return s
 
 def is_close_msg(json_msg):
-    close = False
+    return json_msg.get('__close__', False)
 
-    try:
-        close = json_msg['__close__']
-    except KeyError:
-        pass
-
-    return close
+def is_cancel_msg(json_msg):
+    return json_msg.get('__cancel__', False)
 
 def mkdir_p(path):
     try:
@@ -141,3 +138,14 @@ def create_manifest(request=None, dbconfig=None, sensor_id=None):
 def load_json_from_file(path):
     with open(path, "r") as json_file:
         return json.load(json_file)
+
+def delete_kafka_topics(bootstrap_servers=None, kafka_topics=None):
+    admin = KafkaAdminClient(bootstrap_servers=bootstrap_servers)
+    admin.delete_topics(kafka_topics)
+    admin.close()
+
+def send_kafka_msg(bootstrap_servers=None, kafka_topic=None, kafka_msg=None):
+    producer = KafkaProducer(bootstrap_servers=bootstrap_servers, client_id=random_string())
+    producer.send(kafka_topic, json.dumps(kafka_msg).encode('utf-8'))
+    producer.flush()
+    producer.close()

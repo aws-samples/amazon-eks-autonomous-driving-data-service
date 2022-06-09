@@ -61,21 +61,29 @@ class DataService(threading.Thread):
                     request = json_msg["request"]
                     self.logger.info("recvd request: {0}".format(request))
                     validate_data_request(request)
+                    self.logger.info("validated request successfully")
                     t = DataResponse(dbconfig=self.config['database'], 
                         servers=self.config["servers"], 
                         request=request, 
                         data_store=self.config['data_store'],
                         calibration=self.config['calibration'])
 
-                    if len(tasks) < max_tasks:
-                        tasks.append(t)
-                    else:
-                        oldest=tasks.pop(0)
-                        oldest.join()
-                        tasks.append(t)
-
-                    assert(len(tasks) <= max_tasks)
+                    assert(len(tasks) < max_tasks)
+                    tasks.append(t)
+                    self.logger.info("Starting DataResponse task")
                     t.start()
+
+                    self.logger.info("DataResponse running: {}, max conucrrency {}".format(len(tasks), max_tasks))
+                    while len(tasks) >= max_tasks:
+                        completed_task = None
+                        for task in tasks:
+                            task.join(1.0)
+                            if not task.is_alive():
+                                completed_task = task
+                                break
+                        
+                        if completed_task is not None:
+                            tasks.remove(completed_task)
 
                 except Exception as e:
                     exc_type, exc_value, exc_traceback = sys.exc_info()

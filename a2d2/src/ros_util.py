@@ -457,7 +457,7 @@ class RosUtil(object):
             lifetime = cls.__get_marker_lifetime(request)
             params =  {"boxes": data, "ns": sensor, "lifetime": lifetime}
         else:
-            raise ValueError(f"Unsupported data type: {data_type}")
+            raise ValueError("Unsupported data type: {}".format(data_type))
 
         params['transform'] = transform
         return params

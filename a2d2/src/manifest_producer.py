@@ -22,14 +22,15 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process
-import logging, time
+import logging
 import json
 import threading
+import signal
 
 from kafka import KafkaProducer
 from manifest_dataset import ManifestDataset
 from bus_dataset import BusDataset
-from util import random_string
+from util import random_string, is_cancel_msg, send_kafka_msg
 
 class ManifestProducer(Process):
     def __init__(self, dbconfig=None, servers=None, request=None):
@@ -46,6 +47,9 @@ class ManifestProducer(Process):
         sensors = self.request['sensor_id']
         for s in sensors:
             self.manifests.append(self.create_manifest(dbconfig=dbconfig, sensor_id=s))
+
+        signal.signal(signal.SIGINT, self.__exit_gracefully)
+        signal.signal(signal.SIGTERM, self.__exit_gracefully)
 
 
     def create_manifest(self, dbconfig=None, sensor_id=None):
@@ -70,7 +74,7 @@ class ManifestProducer(Process):
     def publish_manifest(self, manifest=None):
 
         try:
-            producer = KafkaProducer(bootstrap_servers=self.servers, 
+            self.producer = KafkaProducer(bootstrap_servers=self.servers, 
                     client_id=random_string())
 
             response_topic = self.request["response_topic"]
@@ -80,21 +84,38 @@ class ManifestProducer(Process):
                     break
 
                 json_msg = {"type": "manifest", "content": content}  
-                producer.send(response_topic, json.dumps(json_msg).encode('utf-8'))
-                producer.flush()
+                self.producer.send(response_topic, json.dumps(json_msg).encode('utf-8'))
+                self.producer.flush()
 
                 if self.request.get('preview', False):
                     break
 
             json_msg = {"__close__": True}  
-            producer.send(response_topic, json.dumps(json_msg).encode('utf-8'))
-            producer.flush()
-            producer.close()
+            self.producer.send(response_topic, json.dumps(json_msg).encode('utf-8'))
+            self.producer.flush()
+            self.producer.close()
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
+
+    def __close(self):
+        try:
+            resp_topic = self.request['response_topic']
+            json_msg = {"__close__": True} 
+            self.producer.send(resp_topic, json.dumps(json_msg).encode('utf-8'))
+
+            self.producer.flush()
+            self.producer.close()
+        except Exception as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
+        finally:
+            self.logger.info("Completed request:"+resp_topic)
+            sys.exit(0)
 
     def run(self):
         try:
@@ -106,9 +127,15 @@ class ManifestProducer(Process):
 
             for t in tasks:
                 t.join()
+
+            sys.exit(0)
+
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
 
+    def __exit_gracefully(self, signum, frame):
+        self.logger.info("Received {} signal".format(signum))
+        self.__close()

@@ -23,9 +23,10 @@ import sys, traceback
 from multiprocessing import Process
 import logging
 import json
+import signal
 
-from kafka import KafkaConsumer, KafkaAdminClient
-from util import random_string, is_close_msg
+from kafka import KafkaConsumer
+from util import random_string, is_close_msg, send_kafka_msg, delete_kafka_topics
 
 class ManifestConsumer(Process):
     def __init__(self, servers=None, response_topic=None):
@@ -37,7 +38,9 @@ class ManifestConsumer(Process):
 
         self.servers = servers
         self.response_topic = response_topic
-        
+
+        signal.signal(signal.SIGINT, self.__exit_gracefully)
+        signal.signal(signal.SIGTERM, self.__exit_gracefully)
         
     def run(self):
         try:
@@ -55,6 +58,8 @@ class ManifestConsumer(Process):
                     if is_close_msg(json_msg):
                         print(json_str)
                         break
+
+                    print(json_str)
                 except Exception as e:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -63,11 +68,14 @@ class ManifestConsumer(Process):
                     break
 
             consumer.close()
-            admin = KafkaAdminClient(bootstrap_servers=self.servers)
-            admin.delete_topics([self.response_topic])
-            admin.close()
+            delete_kafka_topics(bootstrap_servers=self.servers, kafka_topics=[self.response_topic])
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
             self.logger.error(str(exc_type))
             self.logger.error(str(exc_value))
+
+
+    def __exit_gracefully(self, signum, frame):
+        self.logger.error("Received {} signal".format(signum))
+        sys.exit(0)

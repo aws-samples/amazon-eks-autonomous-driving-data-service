@@ -23,10 +23,10 @@ import sys, traceback
 from multiprocessing import Process, Lock, Value
 import logging
 import json
-from urllib import request
+import signal
 
 
-from kafka import KafkaProducer, KafkaAdminClient
+from kafka import KafkaProducer
 from util import random_string
 from rosbag_consumer import RosbagConsumer
 from manifest_consumer import ManifestConsumer
@@ -43,6 +43,10 @@ class DataRequest(Process):
         self.servers = servers
         self.request = request
         self.use_time = use_time
+
+        signal.signal(signal.SIGINT, self.__exit_gracefully)
+        signal.signal(signal.SIGTERM, self.__exit_gracefully)
+        self.__tasks = []
         
     def request_rosbag(self):
         try:
@@ -56,9 +60,11 @@ class DataRequest(Process):
                 s3=s3, use_time=self.use_time, 
                 no_playback=self.request.get("no_playback", False),
                 no_delete = self.request.get("no_delete", False))
+            self.__tasks.append(t)
             t.start()
 
             self.request["response_topic"] = response_topic
+
             msg = {"request": self.request}
             self.logger.info("send message: {0}".format(msg))
             producer.send(self.request["kafka_topic"], json.dumps(msg).encode('utf-8'))
@@ -66,6 +72,7 @@ class DataRequest(Process):
             producer.close()
 
             t.join()
+            self.__tasks.remove(t)
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -79,6 +86,7 @@ class DataRequest(Process):
 
             response_topic = random_string()
             t = ManifestConsumer(servers=self.servers, response_topic=response_topic)
+            self.__tasks.append(t)
             t.start()
 
             self.request["response_topic"] = response_topic
@@ -89,6 +97,7 @@ class DataRequest(Process):
             producer.close()
 
             t.join()
+            self.__tasks.remove(t)
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -105,5 +114,13 @@ class DataRequest(Process):
         else:
             self.logger.error("Unexpected accept type: {0}".format(accept))
             raise ValueError()
+
+    def __exit_gracefully(self, signum, frame):
+        self.logger.error("Received {} signal".format(signum))
+
+        for t in self.__tasks:
+            t.terminate()
+        self.__tasks.clear()
+        sys.exit(0)
 
 

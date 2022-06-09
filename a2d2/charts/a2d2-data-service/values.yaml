@@ -56,7 +56,7 @@ configMap:
         },
         "input": "fsx"
     },
-    "max_response_tasks": 1,
+    "max_response_tasks": 10,
     "calibration": {
       "cal_bucket": "",
       "cal_key": "a2d2/cams_lidars.json"
