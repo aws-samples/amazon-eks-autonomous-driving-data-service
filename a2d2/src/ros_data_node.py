@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+from signal import pause
 
 import sys, traceback
 import logging
@@ -39,6 +40,11 @@ import subprocess
 
 class RosDataNode:
     DATA_REQUEST_TOPIC = "/mozart/data_request"
+    DATA_REQUEST_CONTROL_TOPIC = "/mozart/data_request/control"
+    PLAY = "play"
+    PAUSE = "pause"
+    STOP = "stop"
+    MAX_RATE = "max_rate"
 
     def __init__(self, config=None):
         self.logger = logging.getLogger("ros_datanode")
@@ -65,6 +71,7 @@ class RosDataNode:
         self.logger.info("Init ROS node: {}, future log messages will be in ROS node log".format(node_name))
         rospy.init_node(node_name)
         rospy.Subscriber(RosDataNode.DATA_REQUEST_TOPIC, String, self.data_request_cb)
+        rospy.Subscriber(RosDataNode.DATA_REQUEST_CONTROL_TOPIC, String, self.data_request_control_cb)
 
         rospy.spin()
       
@@ -98,15 +105,19 @@ class RosDataNode:
             elif  image_request == "undistorted" and data_type == RosUtil.IMAGE_DATA_TYPE:
                 self.sensor_transform[sensor] = RosUtil.get_undistort_fn(cal_json=self.cal_json, sensor=sensor)
 
-        max_rate = self.request.get("max_rate", 0)
-        if max_rate > 0:
-            self.sleep_interval = (len(self.sensor_list)/max_rate)
-        else:
-            self.sleep_interval  = 0
+        self.__set_max_rate(self.request.get(RosDataNode.MAX_RATE, 0))
 
         self.ros_publishers = dict()
         self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else math.inf
         self.sync_bus = self.request.get("sync_bus", True)
+
+        self.__request_state = RosDataNode.PLAY
+
+    def __set_max_rate(self, max_rate):
+        if max_rate > 0:
+            self.sleep_interval = (len(self.sensor_list)/max_rate)
+        else:
+            self.sleep_interval  = 0
 
     def __handle_request(self, request):
 
@@ -186,7 +197,7 @@ class RosDataNode:
             flushed = []
             # rotate through sensors and flush them
             self.logger.info("Flushing  {} sensors".format(_nsensors))
-            while len(flushed) < _nsensors:
+            while self.__guard() and (len(flushed) < _nsensors):
                 msg = None
                 sensor = None
 
@@ -226,6 +237,7 @@ class RosDataNode:
         return self.request["data_type"][sensor] == RosUtil.BUS_DATA_TYPE
 
     def __publish_ros_msg(self, ros_msg=None, sensor=None):
+
         self.ros_publishers[sensor].publish(ros_msg)
         if not self.__is_bus_sensor(sensor):
             msg_ts = RosUtil.get_ros_msg_ts_nsecs(ros_msg)
@@ -267,7 +279,7 @@ class RosDataNode:
         ros_msg_fn = RosUtil.get_ros_msg_fn(data_type=data_type)
         transform =   self.sensor_transform.get(sensor, None)
 
-        while True:
+        while self.__guard():
             files = None
             while not files and manifest.is_open():
                 files = manifest.fetch()
@@ -309,7 +321,8 @@ class RosDataNode:
         data_load_fn = RosUtil.get_data_load_fn(data_type=data_type)
         transform =   self.sensor_transform.get(sensor, None)
 
-        while True:
+        while  self.__guard():
+           
             files = None
             while not files and manifest.is_open():
                 files = manifest.fetch()
@@ -352,7 +365,7 @@ class RosDataNode:
 
     def __publish_bus(self, manifest=None, sensor=None,  frame_id=None):
 
-        while True:
+        while self.__guard:
             rows = None
             while not rows and manifest.is_open():
                 rows = manifest.fetch()
@@ -403,6 +416,30 @@ class RosDataNode:
             self.__handle_request(request)
 
             self.logger.info("completed data request: {0}".format(request))
+          
+        except Exception as _:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+            self.logger.error(str(exc_type))
+            self.logger.error(str(exc_value))
+
+    def __guard(self):
+        while self.__request_state == RosDataNode.PAUSE:
+            time.sleep(1)
+
+        return self.__request_state == RosDataNode.PLAY
+
+    def data_request_control_cb(self, ros_msg):
+        try:  
+            self.logger.info("received ros message: {0}".format(ros_msg.data))
+            
+            request_control = json.loads(ros_msg.data)
+            command = request_control.get("command", None)
+
+            if command == RosDataNode.MAX_RATE:
+                self.__set_max_rate(request_control.get(RosDataNode.MAX_RATE, 0))
+            elif command == RosDataNode.PAUSE or command == RosDataNode.PLAY or command == RosDataNode.STOP:
+                self.__request_state = command
           
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
