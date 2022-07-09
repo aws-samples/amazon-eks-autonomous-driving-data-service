@@ -31,13 +31,36 @@ def main(config):
             file_content = file.read()
             client = boto3.client('kafka')
 
-            kafka_config = client.create_configuration(
-                Description=config['config-description'],
-                Name=config['config-name'],
-                ServerProperties=file_content
-            )
+            response = client.list_configurations()
+            kafka_config = None
+            while True:
+                configuration_list = response['Configurations']
+              
+                for configuration in configuration_list:
+                    if configuration['Name'] == config['config-name']:
+                        kafka_config = configuration
+                        logger.info("Found existing Kafka configuration")
+                        break
+                
+                if kafka_config:
+                    break
 
+                next_token = response.get('NextToken', None)
+                if next_token:
+                    response = client.list_configurations(NextToken=next_token)
+                else:
+                    break
+
+            if kafka_config is None:
+                logger.info("Create new Kafka configuration")
+                kafka_config = client.create_configuration(
+                    Description=config['config-description'],
+                    Name=config['config-name'],
+                    ServerProperties=file_content
+                )
+            
             logger.info(str(kafka_config))
+
             cluster_info = client.describe_cluster( ClusterArn=config['cluster-arn'])
 
             response = client.update_cluster_configuration(
@@ -51,7 +74,7 @@ def main(config):
             logger.info(str(response))
 
     except Exception as e:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
+        _, _, exc_traceback = sys.exc_info()
         traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
         logger.error(str(e))
             

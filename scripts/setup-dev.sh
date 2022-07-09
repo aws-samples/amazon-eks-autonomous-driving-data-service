@@ -16,6 +16,7 @@
  
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIR=$scripts_dir/..
+cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
 
 # check to see if kubectl is already configured
 kubectl get svc || $scripts_dir/configure-eks-auth.sh
@@ -38,7 +39,7 @@ MSK_SERVERS=$(aws kafka --region ${aws_region} get-bootstrap-brokers \
             grep \"BootstrapBrokerString\"  | \
             awk '{split($0, a, " "); print a[2]}')
 
-# update helm charts values.ymal and example client config files
+# update helm charts values.yaml and example client config files
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
     -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
@@ -49,7 +50,7 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
     $DIR/a2d2/charts/a2d2-data-service/values.yaml
 
-# update helm charts values.ymal and example client config files
+# update helm charts values.yaml and example client config files
 sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
     -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
     -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
@@ -77,8 +78,8 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
 DATE=`date +%s`
 cat >$DIR/a2d2/config/kafka.config <<EOL
 {
-    "config-name": "${cfn_stack_name}-${DATE}",
-    "config-description": "${cfn_stack_name} Kafka configuration",
+    "config-name": "a2d2",
+    "config-description": "A2D2 Kafka configuration",
     "cluster-arn": "${msk_cluster_arn}",
     "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"
 }
@@ -105,8 +106,8 @@ sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_p
 sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
     -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/efs/stage-data-a2d2.yaml
 
-# create a2d2 namespace
-kubectl create namespace a2d2
+# create a2d2 namespace if needed
+kubectl get namespace a2d2 || kubectl create namespace a2d2
 
 # deploy AWS EFS CSI driver
 echo "Deploy AWS EFS CSI Driver"

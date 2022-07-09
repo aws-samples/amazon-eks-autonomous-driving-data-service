@@ -17,6 +17,7 @@
 # set s3 bucket name
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIR=$scripts_dir/..
+cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
 
 [[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name variable required" && exit 1
 [[ -z "${batch_job_queue}" ]] && echo "batch_job_queue variable required" && exit 1

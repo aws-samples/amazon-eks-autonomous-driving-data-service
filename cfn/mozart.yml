@@ -105,7 +105,7 @@ Parameters:
     - kafka.m5.4xlarge
     
   MSKNumberOfNodes:
-    Description: The number of MSK Broker nodes, must be >= 2
+    Description: The number of MSK Broker nodes, must be >= 3
     Type: Number
     Default: 3
     MinValue: 3
@@ -261,6 +261,7 @@ Conditions:
     - !Equals 
       - !Ref UbuntuAMI
       - ''
+  EuCentral1: !Equals [ !Ref AWS::Region, "eu-central-1" ]
 
 Mappings:
   melodic:
@@ -1420,6 +1421,27 @@ Resources:
       ToPort: 65535
       CidrIp: '0.0.0.0/0'
   
+  BatchFargateS3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: EuCentral1
+    Properties:
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: "*"
+            Action: 
+              - "s3:Get*"
+              - "s3:List*"
+              - "s3:PutObject*"
+              - "s3:DeleteObject*"
+            Resource: "*"
+      RouteTableIds:
+        - !Ref BatchFargatePrivateRouteTable
+        - !Ref BatchFargatePublicRouteTable
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref BatchFargateVpc
+
   BatchFargateEcrApiEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -1781,7 +1803,8 @@ Resources:
         MountPoints:
           - ContainerPath: "/efs"
             SourceVolume: "efs"
-            
+
+  
   DesktopRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -1826,6 +1849,7 @@ Resources:
                 - "kafka:CreateConfiguration"
                 - "kafka:UpdateClusterConfiguration"
                 - "kafka:GetBootstrapBrokers"
+                - "kafka:ListConfigurations"
                 Resource:
                   - "*"
               
@@ -1913,6 +1937,15 @@ Resources:
                   - 'arn:aws:s3:::aev-autonomous-driving-dataset'
                   - 'arn:aws:s3:::aev-autonomous-driving-dataset/*'
           PolicyName: 'DesktopS3Policy'
+
+        - PolicyName: desktop-ssm
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ssm:GetParametersByPath'
+                Resource: 
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/*'
 
   DesktopInstanceProfile: 
     Type: "AWS::IAM::InstanceProfile"
@@ -2183,6 +2216,7 @@ Resources:
                 pip install boto3
                 pip install kafka-python
                 pip install psycopg2-binary
+                pip install pyquaternion
               elif [[ $VERSION == "20.04" ]]
               then
                 # noetic requries Python 3.x
@@ -2201,6 +2235,7 @@ Resources:
               pip3 install psycopg2-binary
               pip3 install --upgrade awscli
               pip3 install jupyterlab
+              pip3 install pyquaternion
 
               # install ros
               echo "install ros $ROS ..."
@@ -2259,28 +2294,7 @@ Resources:
               chown -R ubuntu:ubuntu  $DIR
                           
               # update /home/ubuntu/.bashrc
-              echo "export efs_id=${EFSFileSystem}" >> /home/ubuntu/.bashrc
-              echo "export fsx_id=${FSxFileSystem}" >> /home/ubuntu/.bashrc
-              echo "export fsx_mount_name=${FSxFileSystem.LustreMountName}" >> /home/ubuntu/.bashrc
-              echo "export s3_bucket_name=${S3Bucket}" >> /home/ubuntu/.bashrc
-              echo "export eks_cluster_name=${AWS::StackName}" >> /home/ubuntu/.bashrc
               echo "export cfn_stack_name=${AWS::StackName}" >> /home/ubuntu/.bashrc
-              echo "export batch_job_queue=${AWS::StackName}-fargate" >> /home/ubuntu/.bashrc
-              echo "export batch_job_definition=${AWS::StackName}-pythonfroms3" >> /home/ubuntu/.bashrc
-              echo "export stepfunctions_role_arn=${StepFunctionsRole.Arn}" >> /home/ubuntu/.bashrc
-              echo "export glue_job_role_arn=${GlueJobRole.Arn}" >> /home/ubuntu/.bashrc
-              echo "export redshift_cluster_role_arn=${RedshiftClusterRole.Arn}" >> /home/ubuntu/.bashrc
-              echo "export redshift_cluster_host=${RedshiftCluster.Endpoint.Address}" >> /home/ubuntu/.bashrc
-              echo "export redshift_cluster_port=${RedshiftCluster.Endpoint.Port}" >> /home/ubuntu/.bashrc
-              echo "export redshift_cluster_username=${RedshiftMasterUsername}" >> /home/ubuntu/.bashrc
-              echo "export redshift_cluster_dbname=${RedshiftDatabaseName}" >> /home/ubuntu/.bashrc
-              echo "export redshift_cluster_password=${RedshiftMasterUserPasswordSecret}" >> /home/ubuntu/.bashrc
-              echo "export desktop_role_arn=${DesktopRole.Arn}" >> /home/ubuntu/.bashrc
-              echo "export msk_cluster_arn=${MSKCluster}" >> /home/ubuntu/.bashrc
-              echo "export eks_node_role_arn=${EksNodeRole.Arn}" >> /home/ubuntu/.bashrc
-              echo "export eks_pod_sa_role_arn=${EksPodServiceAccountRole.Arn}" >> /home/ubuntu/.bashrc
-              echo "export cluster_autoscaler_image_tag=v${KubernetesVersion}.0" >> /home/ubuntu/.bashrc
-              echo "export eks_cluster_autoscaler_role_arn=${EksClusterAutoscalerServiceAccountRole.Arn}" >> /home/ubuntu/.bashrc
               
               # Create FSX mount script 
               cat >/usr/local/bin/mount-fsx.sh <<EOL
@@ -2342,6 +2356,173 @@ Resources:
               echo "NICE DCV server is enabled!" > /etc/motd
 
               reboot
+
+  EfsIdSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/efs_id"
+      Type: String
+      Value: !Ref EFSFileSystem
+      Description: EFS Id
+  FsxIdSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/fsx_id"
+      Type: String
+      Value: !Ref FSxFileSystem
+      Description: FSx Id
+
+  FsxMountNameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/fsx_mount_name"
+      Type: String
+      Value: !GetAtt FSxFileSystem.LustreMountName
+      Description: FSx mount name
+    
+  S3BucketNameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/s3_bucket_name"
+      Type: String
+      Value: !Ref S3Bucket
+      Description: S3 bucket name
+
+  EksClusterNameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/eks_cluster_name"
+      Type: String
+      Value: !Ref EksControlPlane
+      Description: EKS cluster name
+
+  BatchJobQueueSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/batch_job_queue"
+      Type: String
+      Value: !Sub '${AWS::StackName}-fargate'
+      Description: Batch job queue name
+
+  BatchJobDefinitionSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/batch_job_definition"
+      Type: String
+      Value: !Sub '${AWS::StackName}-pythonfroms3'
+      Description: Batch job definition
+
+  DesktoppRoleArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/desktop_role_arn"
+      Type: String
+      Value: !GetAtt DesktopRole.Arn
+      Description: Desktop role arn
+
+  StepfunctionsRoleArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/stepfunctions_role_arn"
+      Type: String
+      Value: !GetAtt StepFunctionsRole.Arn
+      Description: Step functions role arn
+
+  GlueJobRoleArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/glue_job_role_arn"
+      Type: String
+      Value: !GetAtt GlueJobRole.Arn
+      Description: Glue job role arn
+
+  RedshiftClusterHostSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/redshift_cluster_host"
+      Type: String
+      Value: !GetAtt RedshiftCluster.Endpoint.Address
+      Description: Redshift cluster host
+
+  RedshiftClusterPortSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/redshift_cluster_port"
+      Type: String
+      Value: !GetAtt RedshiftCluster.Endpoint.Port
+      Description: Redshift cluster port
+    
+  RedshiftClusterUsernameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/redshift_cluster_username"
+      Type: String
+      Value: !Ref RedshiftMasterUsername
+      Description: Redshift master username
+
+  RedshiftClusterDbnameSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/redshift_cluster_dbname"
+      Type: String
+      Value: !Ref RedshiftDatabaseName
+      Description: Redshift database name
+
+  RedshiftClusterPasswordSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/redshift_cluster_password"
+      Type: String
+      Value: !Ref RedshiftMasterUserPasswordSecret
+      Description: Redshift master password
+
+  RedshiftClusterRoleArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/redshift_cluster_role_arn"
+      Type: String
+      Value: !GetAtt RedshiftClusterRole.Arn
+      Description: Redshift cluster role arn
+
+  MskClusterArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/msk_cluster_arn"
+      Type: String
+      Value: !Ref MSKCluster
+      Description: MSK cluster arn
+
+  EksNodeRolerArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/eks_node_role_arn"
+      Type: String
+      Value: !GetAtt EksNodeRole.Arn
+      Description: EKS node role arn
+
+  EksPodSARoleArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/eks_pod_sa_role_arn"
+      Type: String
+      Value: !GetAtt EksPodServiceAccountRole.Arn
+      Description: EKS pod service account role arn
+
+  ClusterAutoscalerImageTagSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/cluster_autoscaler_image_tag"
+      Type: String
+      Value: !Sub "v${KubernetesVersion}.0"
+      Description: EKS Cluster autoscaler image tag
+
+  ClusterAutoscalerSARoleArnSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/eks_cluster_autoscaler_role_arn"
+      Type: String
+      Value: !GetAtt EksClusterAutoscalerServiceAccountRole.Arn
+      Description: EKS cluster autoscaler SA role arn
 
 Outputs:
   PublicSubnet1:

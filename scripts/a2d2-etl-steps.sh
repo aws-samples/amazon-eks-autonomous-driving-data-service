@@ -17,6 +17,7 @@
 # set s3 bucket name
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIR=$scripts_dir/..
+cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
 
 [[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name variable required" && exit 1
 [[ -z "${batch_job_queue}" ]] && echo "batch_job_queue variable required" && exit 1
@@ -94,6 +95,10 @@ cat >$DIR/a2d2/config/redshift.config <<EOL
     "CREATE TABLE IF NOT EXISTS a2d2.vehicle ( vehicleid VARCHAR(255) NOT NULL ENCODE lzo ,description VARCHAR(255) ENCODE lzo ,PRIMARY KEY (vehicleid)) DISTSTYLE ALL",
     "CREATE TABLE IF NOT EXISTS a2d2.drive_data ( vehicle_id varchar(255) encode Text255 not NULL, scene_id varchar(255) encode Text255 not NULL, sensor_id varchar(255) encode Text255 not NULL, data_ts BIGINT not NULL sortkey, s3_bucket VARCHAR(255) encode lzo NOT NULL, s3_key varchar(255) encode lzo NOT NULL, primary key(vehicle_id, scene_id), FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid), FOREIGN KEY(sensor_id) references a2d2.sensor(sensorid)) DISTSTYLE AUTO",
     "CREATE TABLE IF NOT EXISTS a2d2.bus_data ( vehicle_id varchar(255) encode Text255 not NULL, scene_id varchar(255) encode Text255 not NULL, data_ts BIGINT not NULL sortkey, acceleration_x FLOAT4 not NULL, acceleration_y FLOAT4 not NULL, acceleration_z FLOAT4 not NULL, accelerator_pedal FLOAT4 not NULL, accelerator_pedal_gradient_sign SMALLINT not NULL, angular_velocity_omega_x FLOAT4 not NULL, angular_velocity_omega_y FLOAT4 not NULL, angular_velocity_omega_z FLOAT4 not NULL, brake_pressure FLOAT4 not NULL, distance_pulse_front_left FLOAT4 not NULL, distance_pulse_front_right FLOAT4 not NULL, distance_pulse_rear_left FLOAT4 not NULL, distance_pulse_rear_right FLOAT4 not NULL, latitude_degree FLOAT4 not NULL, latitude_direction SMALLINT not NULL, longitude_degree FLOAT4 not NULL, longitude_direction SMALLINT not NULL, pitch_angle FLOAT4 not NULL, roll_angle FLOAT4 not NULL, steering_angle_calculated FLOAT4 not NULL, steering_angle_calculated_sign SMALLINT not NULL, vehicle_speed FLOAT4 not NULL, primary key(vehicle_id, scene_id), FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid) ) DISTSTYLE AUTO",
+    "DELETE FROM a2d2.bus_data",
+    "DELETE FROM a2d2.drive_data",
+    "DELETE FROM a2d2.sensor",
+    "DELETE FROM a2d2.vehicle",
     "COPY a2d2.sensor FROM 's3://${s3_bucket_name}/redshift/sensors.csv' iam_role  '${redshift_cluster_role_arn}' CSV",
     "COPY a2d2.vehicle FROM 's3://${s3_bucket_name}/redshift/vehicle.csv' iam_role  '${redshift_cluster_role_arn}' CSV",
     "COPY a2d2.drive_data FROM 's3://${s3_bucket_name}/${s3_glue_output_prefix}/image/' iam_role  '${redshift_cluster_role_arn}' CSV IGNOREHEADER 1",

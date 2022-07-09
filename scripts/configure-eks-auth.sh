@@ -15,6 +15,7 @@
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
 
 kubectl get svc > /dev/null 2>&1 && echo "kubectl is already configured" && exit 0
 
