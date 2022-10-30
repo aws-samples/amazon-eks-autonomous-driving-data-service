@@ -30,16 +30,28 @@ aws_region=$(aws configure get region)
 [[ -z "${redshift_cluster_username}" ]] && echo "redshift_cluster_username variable required" && exit 1
 [[ -z "${redshift_cluster_dbname}" ]] && echo "redshift_cluster_dbname variable required" && exit 1
 [[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
-[[ -z "${msk_cluster_arn}" ]] && echo "msk_cluster_arn variable required" && exit 1
 [[ -z "${eks_pod_sa_role_arn}" ]] && echo "eks_pod_sa_role_arn variable required" && exit 1
 [[ -z "${eks_node_role_arn}" ]] && echo "eks_node_role_arn variable required" && exit 1
+[[ -z "${msk_cluster_arn}" ]] && echo "MSK cluster is not defined: WebSocket client only."
 
+DATE=`date +%s`
+# update helm charts values.yaml for a2d2-rosbridge
+sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
+    -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
+    -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
+    -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
+    -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
+    -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
+    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
+
+if [[ ! -z "${msk_cluster_arn}" ]]
+then
 MSK_SERVERS=$(aws kafka --region ${aws_region} get-bootstrap-brokers \
         	--cluster-arn ${msk_cluster_arn} | \
             grep \"BootstrapBrokerString\"  | \
             awk '{split($0, a, " "); print a[2]}')
 
-# update helm charts values.yaml and example client config files
+# update helm charts values.yaml for a2d2-data-service and example client config files
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
     -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
@@ -50,15 +62,6 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
     $DIR/a2d2/charts/a2d2-data-service/values.yaml
 
-# update helm charts values.yaml and example client config files
-sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
-    -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
-    -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
-    -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
-    -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
-    -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
-    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
-    
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
         $DIR/a2d2/config/c-config-ex1.json
                   
@@ -73,9 +76,8 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
 
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
         $DIR/a2d2/config/c-config-lidar.json
-             
+
 # Create kafka.config 
-DATE=`date +%s`
 cat >$DIR/a2d2/config/kafka.config <<EOL
 {
     "config-name": "a2d2",
@@ -84,11 +86,13 @@ cat >$DIR/a2d2/config/kafka.config <<EOL
     "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"
 }
 EOL
+
 chown ubuntu:ubuntu $DIR/a2d2/config/kafka.config
 
 #Update MSK cluster config
 echo "Update MSK cluster configuration"
 python3 $scripts_dir/update-kafka-cluster-config.py --config $DIR/a2d2/config/kafka.config
+fi
 
 # Update yaml files for creating EFS and FSx persistent-volume
 sed -i -e "s/volumeHandle: .*/volumeHandle: ${efs_id}/g" \

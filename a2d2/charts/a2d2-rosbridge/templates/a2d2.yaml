@@ -79,7 +79,7 @@ spec:
         - mountPath: /tmp
           name: tmp
 ---
-apiVersion: autoscaling/v2beta2
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   namespace: {{ .Values.global.namespace }}
