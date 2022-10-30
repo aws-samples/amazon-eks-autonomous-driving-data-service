@@ -64,6 +64,7 @@ To get started:
 * You will need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the selected AWS region. You will use the S3 bucket name to specify the ```S3Bucket``` parameter in the stack. The bucket is used to store the [A2D2](https://www.a2d2.audi/a2d2/en.html) data.
 * Use the [public internet address](http://checkip.amazonaws.com/) of your laptop as the base value for the [CIDR](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html) to specify ```DesktopRemoteAccessCIDR``` parameter in the CloudFormation stack you will create below.  
 * For all passwords used in this tutorial, we recommend using *strong* passwords using the best-practices recommended for [AWS root account user password](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_change-root.html).
+* This tutorial assumes default values for all other parameters in the CloudFormation stack.
 
 ### Configure the data service
 
@@ -258,6 +259,8 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | DesktopEbsVolumeType | This is a **required** parameter whereby you select the [EBS volume type](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) (default is gp3). |
 | DesktopHasPublicIpAddress | This is a **required** parameter whereby you select whether a Public Ip Address be associated with the Desktop.  Default value is ```true```.|
 | DesktopRemoteAccessCIDR | This parameter specifies the public IP CIDR range from where you need remote access to your client desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
+| DesktopType | This parameter specifies support for `Graphical` desktop with NICE-DCV server enabled, or `Headless` desktop with NICE-DCV server disabled. Default value is `Graphical`.|
+| DataClientType | This parameter specifies support for `RosBagAndRosBridge`, or `RosBridge` only. Default value is `RosBagAndRosBridge`.|
 | EKSEncryptSecrets | This is a **required** parameter whereby you select if encryption of EKS secrets is ```Enabled```. Default value is ```Enabled```.|
 | EKSEncryptSecretsKmsKeyArn | This is an *optional* advanced parameter whereby you specify the [AWS KMS](https://aws.amazon.com/kms/) key ARN that is used to encrypt EKS secrets. Leave blank to create a new KMS key.|
 | EKSNodeGroupInstanceType | This is a **required** parameter whereby you select EKS Node group EC2 instance type. Default value is ```r5n.8xlarge```.|
