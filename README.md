@@ -78,7 +78,7 @@ Create a new AWS CloudFormation stack using the ```cfn/mozart.yml``` template. T
 | KeyPairName | This is a *required* parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
 | RedshiftMasterUserPassword | This is a *required* parameter whereby you specify the Redshift database master user password.|
 | DesktopRemoteAccessCIDR | This is a *required* parameter whereby you specify the public IP CIDR range from where you need remote access to your graphics desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
-| DesktopInstanceType | This is a required parameter whereby you select an Amazon EC2 instance type for the ROS desktop. The default value, ```g3s.xlarge```, may not be available for your selected region, in which case, we recommend you try  ```g4dn.xlarge```, or one of the other instance types.
+| DesktopInstanceType | This is a required parameter whereby you select an Amazon EC2 instance type for the ROS desktop. The default value, ```g4dn.xlarge```, may not be available for your selected region, in which case, we recommend you try  one of the other available instance types.
 | S3Bucket | This is a *required* parameter whereby you specify the name of the Amazon S3 bucket to store your data. **The S3 bucket must already exist.** |
 
 For all other stack input parameters, default values are recommended during first walkthrough. See complete list of all the [template input parameters](#InputParams) below. 
@@ -87,10 +87,10 @@ For all other stack input parameters, default values are recommended during firs
 
 The key resources in the CloudFormation stack are listed below:
 
-* A ROS desktop EC2 instance (default type ```g3s.xlarge```)
-* An Amazon EKS cluster with 2 [managed node group](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html) nodes (default type ```r5n.8xlarge```)
-* An Amazon [MSK](https://aws.amazon.com/msk/) cluster with 3 broker nodes (default type ```kafka.m5.2xlarge```)
-* An Amazon [Redshift](https://aws.amazon.com/redshift/) cluster with 3 nodes (default type ```ra3.4xlarge```)
+* A ROS desktop EC2 instance (default type ```g4dn.xlarge```)
+* An Amazon EKS cluster with 2 [managed node group](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html) nodes (default type ```m5n.8xlarge```)
+* An Amazon [MSK](https://aws.amazon.com/msk/) cluster with 3 broker nodes (default type ```kafka.m5.large```)
+* An Amazon [Redshift](https://aws.amazon.com/redshift/) cluster with 3 nodes (default type ```dc2.large```)
 * An Amazon [Fsx for Lustre](https://aws.amazon.com/fsx/lustre/) file-system (default size 7,200  GiB)
 * An Amazon [EFS](https://aws.amazon.com/efs/) file-system
 
