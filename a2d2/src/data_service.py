@@ -20,11 +20,8 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import sys, traceback
-import threading, logging, time
+import threading, logging
 import json
-import random
-import string
-import time
 
 from kafka import KafkaConsumer
 from data_response import DataResponse

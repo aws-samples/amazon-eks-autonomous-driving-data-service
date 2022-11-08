@@ -24,10 +24,8 @@ import psycopg2
 import boto3
 
 import sys, traceback
-import threading, logging, time
+import logging
 import json
-import random
-import string
 import time
 
 class DatabaseReader:

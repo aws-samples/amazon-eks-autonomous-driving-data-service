@@ -26,7 +26,7 @@ import json
 import signal
 
 from kafka import KafkaConsumer
-from util import random_string, is_close_msg, send_kafka_msg, delete_kafka_topics
+from util import random_string, is_close_msg, delete_kafka_topics
 
 class ManifestConsumer(Process):
     def __init__(self, servers=None, response_topic=None):

@@ -25,7 +25,6 @@ import cv2
 import threading
 import os
 import util
-import rospy
 
 import cv_bridge
 
@@ -35,6 +34,15 @@ from visualization_msgs.msg import  Marker, MarkerArray
 from geometry_msgs.msg import  Pose
 from  pyquaternion import Quaternion
 from std_msgs.msg import ColorRGBA
+
+ROS_VERSION = os.getenv("ROS_VERSION", "1")
+
+if ROS_VERSION == "1":
+    import rospy
+elif ROS_VERSION == "2":
+    import rclpy
+else:
+    raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
 from view import transform_from_to
 
@@ -83,12 +91,18 @@ class RosUtil(object):
 
     @classmethod
     def get_topics_types(cls, reader):
-        topics = reader.get_type_and_topic_info()[1] 
         topic_types = dict() 
 
-        for topic, topic_tuple in topics.items():
-            topic_types[topic] = topic_tuple[0]
+        if ROS_VERSION == "1":
+            topics = reader.get_type_and_topic_info()[1] 
+            
+            for topic, topic_tuple in topics.items():
+                topic_types[topic] = topic_tuple[0]
         
+        elif ROS_VERSION == "2":
+            topics_and_types = reader.get_all_topics_and_types()
+            topic_types = {topics_and_types[i].name: topics_and_types[i].type for i in range(len(topics_and_types))}
+
         return topic_types
 
     @classmethod
@@ -115,37 +129,61 @@ class RosUtil(object):
 
     @classmethod
     def get_ros_msg_ts_nsecs(cls, ros_msg):
-        return ros_msg.header.stamp.secs * 1000000 + int(ros_msg.header.stamp.nsecs/1000)
+        if ROS_VERSION == "1":
+            return ros_msg.header.stamp.secs * 1000000 + int(ros_msg.header.stamp.nsecs/1000)
+        elif ROS_VERSION == "2":
+            return ros_msg.header.stamp.sec * 1000000 + int(ros_msg.header.stamp.nanosec/1000)
         
     @classmethod
     def set_ros_msg_received_time(cls, ros_msg):
         _ts = time.time()*1000000
         _stamp = divmod(_ts, 1000000 ) #stamp in micro secs
-        
-        if cls.__is_marker_array(ros_msg):
-            markers = ros_msg.markers
-            for marker in markers:
-                marker.header.stamp.secs = int(_stamp[0]) # secs
-                marker.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
-        else:
-            ros_msg.header.stamp.secs = int(_stamp[0]) # secs
-            ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
-
+      
+        if ROS_VERSION == "1":
+            if cls.__is_marker_array(ros_msg):
+                markers = ros_msg.markers
+                for marker in markers:
+                    marker.header.stamp.secs = int(_stamp[0]) # secs
+                    marker.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+            else:
+                ros_msg.header.stamp.secs = int(_stamp[0]) # secs
+                ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        elif ROS_VERSION == "2":
+            if cls.__is_marker_array(ros_msg):
+                markers = ros_msg.markers
+                for marker in markers:
+                    marker.header.stamp.sec = int(_stamp[0]) # secs
+                    marker.header.stamp.nanosec = int(_stamp[1]*1000) # nano secs
+            else:
+                ros_msg.header.stamp.sec = int(_stamp[0]) # secs
+                ros_msg.header.stamp.nanosec = int(_stamp[1]*1000) # nano secs
 
     @classmethod
     def set_ros_msg_header(cls, ros_msg=None, ts=None, frame_id=None):
         _stamp = divmod(ts, 1000000 ) #stamp in micro secs
 
-        if cls.__is_marker_array(ros_msg):
-            markers = ros_msg.markers
-            for marker in markers:
-                marker.header.frame_id = frame_id
-                marker.header.stamp.secs = int(_stamp[0]) # secs
-                marker.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
-        else:
-            ros_msg.header.frame_id = frame_id
-            ros_msg.header.stamp.secs = int(_stamp[0]) # secs
-            ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        if ROS_VERSION == "1":
+            if cls.__is_marker_array(ros_msg):
+                markers = ros_msg.markers
+                for marker in markers:
+                    marker.header.frame_id = frame_id
+                    marker.header.stamp.secs = int(_stamp[0]) # secs
+                    marker.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+            else:
+                ros_msg.header.frame_id = frame_id
+                ros_msg.header.stamp.secs = int(_stamp[0]) # secs
+                ros_msg.header.stamp.nsecs = int(_stamp[1]*1000) # nano secs
+        elif ROS_VERSION == "2":
+            if cls.__is_marker_array(ros_msg):
+                markers = ros_msg.markers
+                for marker in markers:
+                    marker.header.frame_id = frame_id
+                    marker.header.stamp.sec = int(_stamp[0]) # secs
+                    marker.header.stamp.nanosec = int(_stamp[1]*1000) # nano secs
+            else:
+                ros_msg.header.frame_id = frame_id
+                ros_msg.header.stamp.sec = int(_stamp[0]) # secs
+                ros_msg.header.stamp.nanosec = int(_stamp[1]*1000) # nano secs
 
     @classmethod
     def bus_msg(cls, row=None):
@@ -195,7 +233,17 @@ class RosUtil(object):
 
     @classmethod
     def __point_field(cls, name, offset, datatype=PointField.FLOAT32, count=1):
-        return PointField(name, offset, datatype, count)
+        pf = None
+        if ROS_VERSION == "1":
+            pf = PointField(name, offset, datatype, count)
+        elif ROS_VERSION == "2":
+            pf = PointField()
+            pf.name = name
+            pf.offset = offset
+            pf.datatype = datatype
+            pf.count = count
+        
+        return pf
 
     @classmethod
     def get_pcl_fields(cls):
@@ -431,7 +479,10 @@ class RosUtil(object):
         try:
             marker_lifetime = request.get("marker_lifetime", None)
             if marker_lifetime is not None:
-                return rospy.Duration.from_sec(marker_lifetime)
+                if ROS_VERSION == "1":
+                    return rospy.Duration.from_sec(marker_lifetime)
+                elif ROS_VERSION == "2":
+                    return rclpy.time.Duration(seconds=marker_lifetime)
         except Exception:
             pass
 

@@ -195,7 +195,7 @@ Parameters:
   UbuntuAMI:
     Description: >-
       Advanced option to override Ubuntu AMI with version 18.04, or 20.04. 
-      ROS  'melodic' requires 18.04, and 'noetic' requires 20.04.
+      ROS  'melodic' requires 18.04, 'noetic' requires 20.04, and 'foxy' requires 22.04.
     Type: String
     AllowedPattern: '(ami-[0-9a-z]{17})?'
 
@@ -250,13 +250,14 @@ Parameters:
 
   RosVersion:
     Description: >-
-     ROS version. 
+     ROS version. For ROS1, use 'noetic'. For ROS2, use 'humble'. ROS1 'melodic' is deprecated. 
     Type: String
     Default: "noetic"
     AllowedValues:
-     - "melodic"
      - "noetic"
-  
+     - "humble"
+     - "melodic"
+
   FargateComputeMax:
     Description: Maximum size of compute environment in vCpus
     Type: Number
@@ -323,6 +324,27 @@ Mappings:
       AMI: ami-008eb3d0705154428
     ap-northeast-2:
       AMI: ami-008d135ee5a077b34
+  humble:
+    us-east-1:
+      AMI: ami-0df98d1c227268eca
+    us-east-2:
+      AMI: ami-01ad0b22f20e31794
+    us-west-2:
+      AMI: ami-0573d9e7f7c229af1
+    eu-west-1:
+      AMI: ami-022c5f58cc6a57b1b
+    eu-central-1:
+      AMI: ami-0c49b1f4a762ff82f
+    ap-southeast-1:
+      AMI: ami-06be72127bdf48298
+    ap-southeast-2:
+      AMI: ami-04345f15b1bbae51a
+    ap-south-1:
+      AMI: ami-03b4c3a597963541c
+    ap-northeast-1:
+      AMI: ami-0fafdd9db4ee92c09
+    ap-northeast-2:
+      AMI: ami-0ed9f71f8f7c3376f
 
 Resources:
   Vpc:
@@ -1970,6 +1992,15 @@ Resources:
                 Resource: 
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/*'
 
+        - PolicyName: eks-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'eks:DescribeCluster'
+                Resource: 
+                  - !GetAtt EksControlPlane.Arn
+
   DesktopInstanceProfile: 
     Type: "AWS::IAM::InstanceProfile"
     Properties: 
@@ -2066,7 +2097,12 @@ Resources:
                     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
                     mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
                     apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub && \
-                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" ) ) && \
+                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" ) || \
+                  ( [[ $VERSION == "22.04" ]] && \
+                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin && \
+                    mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub && \
+                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /" ) ) && \
                 apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y autoremove && \
                 apt-get -y install cuda-11-8 && \
                 apt-get -y install libcudnn8=8.6.0.163-1+cuda11.8 && \
@@ -2086,10 +2122,6 @@ Resources:
               # add key for NICE-DCV
               wget https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY
               gpg --import NICE-GPG-KEY
-
-              # setup software repo for ros
-              sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
-              apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
 
               # update and install required packages
               apt update
@@ -2130,6 +2162,11 @@ Resources:
               then
                 bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu bionic main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
 
+                # setup software repo for ros
+                sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
+                apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
+                apt update
+
                 if [[ "${DesktopType}" == "Graphical" ]]
                 then
                   apt install -y lightdm
@@ -2156,6 +2193,11 @@ Resources:
               then
                 bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
                 
+                # setup software repo for ros
+                sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
+                apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
+                apt update
+                
                 if [[ "${DesktopType}" == "Graphical" ]]
                 then
                   apt install -y gdm3
@@ -2181,8 +2223,42 @@ Resources:
                   apt install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
                 fi
 
+              elif [[ $VERSION == "22.04" ]]
+              then   
+                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu jammy main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+                
+                add-apt-repository universe
+                curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+                apt update
+
+                if [[ "${DesktopType}" == "Graphical" ]]
+                then
+                  apt-get -y install gdm3
+                  apt-get -y upgrade
+                  echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
+                  dpkg-reconfigure gdm3
+                  sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
+                  systemctl restart gdm3
+
+                  apt-get -y install mesa-utils
+                  if [ -x "$(command -v nvidia-xconfig)" ]; then
+                    nvidia-xconfig --preserve-busid --enable-all-gpus
+                  fi
+
+                  #restart X server
+                  echo "restart X-server"
+                  systemctl set-default graphical.target
+                  systemctl isolate graphical.target
+
+                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2022.1/Servers/nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
+                  tar -xvzf nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
+                  cd nice-dcv-2022.1-13300-ubuntu2204-x86_64
+                  apt-get -y install ./nice-dcv-server_2022.1.13300-1_amd64.ubuntu2204.deb/
+                fi
+
               else
-                echo "Ubuntu $VERSION is not supported; must be one of 18.04, or 20.04"
+                echo "Ubuntu $VERSION is not supported; must be one of 18.04, 20.04, or 22.04"
                 exit 1
               fi
 
@@ -2193,7 +2269,7 @@ Resources:
                 systemctl isolate graphical.target
 
                 # Create DCV server configuration file
-                mkdir  /opt/dcv-session-store
+                [[ -d  /opt/dcv-session-store ]] || mkdir  /opt/dcv-session-store
                 echo "[license]" >> dcv.conf
                 echo "[log]" >> dcv.conf
                 echo "[session-management]" >> dcv.conf
@@ -2241,12 +2317,13 @@ Resources:
               # install nfs-common
               apt install -y nfs-common
 
-              ROS=''
+              ROS=${RosVersion}
               PYTHON=''
               if [[ $VERSION == "18.04" ]]
               then
+                [[ $ROS != 'melodic' ]] && echo "RosVersion must be 'melodic' for Ubuntu $VERSION" && exit 1
+
                 # melodic requries Python 2.x
-                ROS='melodic'
                 PYTHON=python
                 
                 apt install -y python-minimal  python-pip
@@ -2257,11 +2334,19 @@ Resources:
                 pip install pyquaternion
               elif [[ $VERSION == "20.04" ]]
               then
+                [[ $ROS != 'noetic' ]] && echo "RosVersion must be 'noetic' for Ubuntu $VERSION" && exit 1
+
                 # noetic requries Python 3.x
                 ROS='noetic'
                 PYTHON=python3
+              elif [[ $VERSION == "22.04" ]]
+              then
+                [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
+
+                # humble requries Python 3.x
+                PYTHON=python3
               else
-                echo "Ubuntu $VERSION is not supported; must be one of 18.04, or 20.04"
+                echo "Ubuntu $VERSION is not supported; must be one of 18.04, 20.04, or 22.04"
                 exit 1
               fi
 
@@ -2282,8 +2367,18 @@ Resources:
               echo "source /opt/ros/$ROS/setup.bash" >> /home/ubuntu/.bashrc
               apt install -y $PYTHON-rosdep $PYTHON-rosinstall $PYTHON-rosinstall-generator $PYTHON-wstool build-essential
 
-              rosdep init
-              rosdep update
+              if [[ ! -d /etc/ros/rosdep/sources.list.d ]]
+              then
+                rosdep init
+              fi
+              sudo -u ubuntu rosdep update
+
+              if [[ $ROS == 'humble' ]]
+              then
+                apt install -y python3-colcon-common-extensions
+                apt install -y ros-humble-rosbag2-storage-mcap
+                apt install -y ros-humble-rosbridge-server
+              fi
 
               # Create roscore startup script
               echo "#!/bin/bash" >> /usr/local/bin/start-roscore.sh
@@ -2305,26 +2400,9 @@ Resources:
               systemctl enable roscore
               echo "install Ros $ROS complete"
 
-              # install webviz
-              echo "setup webviz ..."
-
-              # Create startup session script
-              echo "#!/bin/bash" >> /usr/local/bin/start-webviz.sh
-              echo "docker run -p 8080:8080 cruise/webviz" >> /usr/local/bin/start-webviz.sh
-              chmod a+x /usr/local/bin/start-webviz.sh
-
-              echo "[Unit]" >> /etc/systemd/system/webviz.service
-              echo "Description=webviz service" >> /etc/systemd/system/webviz.service
-              echo "" >> /etc/systemd/system/webviz.service
-              echo "[Service]" >> /etc/systemd/system/webviz.service
-              echo "User=ubuntu" >> /etc/systemd/system/webviz.service
-              echo "ExecStart=/usr/local/bin/start-webviz.sh" >> /etc/systemd/system/webviz.service
-              echo "Restart=on-abort" >> /etc/systemd/system/webviz.service
-              echo "" >> /etc/systemd/system/webviz.service
-              echo "[Install]" >> /etc/systemd/system/webviz.service
-              echo "WantedBy=graphical.target" >> /etc/systemd/system/webviz.service
-
-              systemctl enable webviz
+              # install foxglove studio
+              wget https://github.com/foxglove/studio/releases/download/v1.30.0/foxglove-studio-1.30.0-linux-amd64.deb \
+                && apt install -y ./foxglove-studio-1.30.0-linux-amd64.deb
 
               # clone the add-apt-repository
               cd /home/ubuntu && git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
@@ -2338,12 +2416,8 @@ Resources:
               cat >/usr/local/bin/mount-fsx.sh <<EOL
               #!/bin/bash
 
-              if [[ ! -d /fsx ]]
-              then
-                mkdir /fsx
-              fi
-
               # Mount FSx
+              [[ -d /fsx ]] || mkdir /fsx
               mount -t lustre -o noatime,flock ${FSxFileSystem}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxFileSystem.LustreMountName} /fsx
               EOL
 
@@ -2353,12 +2427,8 @@ Resources:
               cat >/usr/local/bin/mount-efs.sh <<EOL
               #!/bin/bash
 
-              if [[ ! -d /efs ]]
-              then
-                mkdir /efs
-              fi
-              
               # Mount EFS
+              [[ -d /efs ]] || mkdir /efs
               mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${EFSFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /efs
 
               EOL
@@ -2366,7 +2436,7 @@ Resources:
               chmod u+x /usr/local/bin/mount-efs.sh
 
               # Create config file
-              mkdir /home/ubuntu/.aws
+              [[ -d /home/ubuntu/.aws ]] || mkdir /home/ubuntu/.aws
               cat >/home/ubuntu/.aws/config <<EOL
               [default]
               region = ${AWS::Region}
@@ -2376,7 +2446,7 @@ Resources:
               chown -R ubuntu:ubuntu /home/ubuntu/.aws
 
               # install kubectl for EKS
-              mkdir -p /usr/local/bin
+              [[ -d /usr/local/bin ]] || mkdir -p /usr/local/bin
               curl -o /usr/local/bin/kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/${KubectlVersion}/bin/linux/amd64/kubectl
               chmod a+x /usr/local/bin/kubectl
               curl -o /usr/local/bin/aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/${KubectlVersion}/bin/linux/amd64/aws-iam-authenticator
@@ -2571,46 +2641,32 @@ Resources:
       Description: EKS cluster autoscaler SA role arn
 
 Outputs:
-  PublicSubnet1:
-    Description: Public subnet 1
-    Value: !Ref PublicSubnet1
+  DesktopAMI:
+    Description: Desktop AMI
+    Value: !If 
+        - OverrideAMI
+        - !Ref UbuntuAMI
+        - !FindInMap 
+          - !Ref RosVersion
+          - !Ref 'AWS::Region'
+          - AMI
     Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "PublicSubnet1" ] ]
-  PublicSubnet2:
-    Description: Public subnet 2
-    Value: !Ref PublicSubnet2
-    Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "PublicSubnet2" ] ]
-  PublicSubnet3:
-    Description: Public subnet 3
-    Value: !Ref PublicSubnet3
-    Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "PublicSubnet3" ] ]
-  DesktopSecurityGroupId:
-    Description: Desktop security group id
-    Value: !GetAtt DesktopSecurityGroup.GroupId
-    Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "DesktopSecurityGroupId" ] ]
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "DesktopAMI" ] ]
   DesktopInstanceProfile:
     Description: Desktop instance profile
     Value: !Ref DesktopInstanceProfile
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "DesktopInstanceProfile" ] ]
-  RedshiftHost:
-    Description: Redshit  host
-    Value: !Sub "${RedshiftCluster.Endpoint.Address}"
+  DesktopSubnet:
+    Description: Desktop subnet
+    Value: !Ref PublicSubnet1
     Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "RedshiftHost" ] ]
-  RedshiftPort:
-    Description: Redshit  port
-    Value: !Sub "${RedshiftCluster.Endpoint.Port}"
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "DesktopSubnet" ] ]
+  DesktopVpc:
+    Description: Desktop Vpc
+    Value: !Ref Vpc
     Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "RedshiftPort" ] ]
-  RedshiftDb:
-    Description: Redshit database name
-    Value: !Ref RedshiftDatabaseName
-    Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "RedshiftDb" ] ]
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "Vpc" ] ]
   FSxId:
     Description: FSx for Luster file system id
     Value: !Ref FSxFileSystem
@@ -2626,19 +2682,18 @@ Outputs:
     Value: !Ref EFSFileSystem
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "EFSId" ] ]
-  EKSClusterEndpoint:
-    Description: EKS cluster endpoint
-    Value: !GetAtt EksControlPlane.Endpoint
-    Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "EKSClusterEndpoint" ] ]
   EKSClusterName:
     Description: EKS cluster name
     Value: !Ref EksControlPlane
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "EKSClusterName" ] ]
-  MSKClusterArn:
-    Condition: MSKEnabled
-    Description: MSK cluster Arn
-    Value: !Ref MSKCluster
+  RosVersion:
+    Description: Ros Version
+    Value: !Ref RosVersion
     Export:
-      Name: !Join [ "-", [ !Ref "AWS::StackName", "MSKClusterArn" ] ]
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "RosVersion" ] ]
+  KubectlVersion:
+    Description: Kubectl Version
+    Value: !Ref KubectlVersion
+    Export:
+      Name: !Join [ "-", [ !Ref "AWS::StackName", "KubectlVersion" ] ]

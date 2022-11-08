@@ -20,7 +20,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import sys, traceback
-from multiprocessing import Process, Lock, Value
+from multiprocessing import Process
 import logging
 import json
 import signal

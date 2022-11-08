@@ -30,18 +30,28 @@ except ImportError:
 import logging, time
 import json
 import time
-import rosbag
-import rospy
 
 import os
 import shutil
 import signal
 
 from kafka import KafkaConsumer
-from util import random_string, delete_kafka_topics, send_kafka_msg, is_close_msg
+from util import random_string, delete_kafka_topics, is_close_msg
 from s3_reader import S3Reader
 from s3_deleter import S3Deleter
 from ros_util import RosUtil
+from ros_util import ROS_VERSION
+
+if ROS_VERSION == "1":
+    import rosbag
+    import rospy
+elif ROS_VERSION == "2":
+    import rclpy
+    import rosbag2_py
+    from rclpy.serialization import deserialize_message
+    from rosidl_runtime_py.utilities import get_message
+else:
+    raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
 class RosbagConsumer(Process):
 
@@ -93,19 +103,40 @@ class RosbagConsumer(Process):
         for ros_topic, data_type in topics_types.items():
             if  ros_topic not in self.ros_publishers:
                 ros_data_class = RosUtil.get_data_class(data_type)
-                self.ros_publishers[ros_topic] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
+                if ROS_VERSION == "1":
+                    self.ros_publishers[ros_topic] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
+                elif ROS_VERSION == "2":
+                    self.ros_publishers[ros_topic] = self.ros2_node.create_publisher(ros_data_class, ros_topic, 64)
                 time.sleep(1)
         
 
     def __publish_msgs(self, bag_path):
 
-        reader = rosbag.Bag(bag_path)
-        self.__get_ros_publishers(reader)
-        for ros_topic, ros_msg, _ in reader.read_messages():
-            if self.use_time == "received":
-                RosUtil.set_ros_msg_received_time(ros_msg)
-            self.ros_publishers[ros_topic].publish(ros_msg)
-        reader.close()
+        if ROS_VERSION == "1":
+            reader = rosbag.Bag(bag_path)
+            self.__get_ros_publishers(reader)
+            for ros_topic, ros_msg, _ in reader.read_messages():
+                if self.use_time == "received":
+                    RosUtil.set_ros_msg_received_time(ros_msg)
+                self.ros_publishers[ros_topic].publish(ros_msg)
+            reader.close()
+        elif ROS_VERSION == "2":
+            reader = rosbag2_py.SequentialReader()
+            storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id='mcap', storage_preset_profile='zstd_fast')
+            converter_options = rosbag2_py.ConverterOptions(
+                input_serialization_format='cdr',
+                output_serialization_format='cdr')
+            reader.open(storage_options, converter_options)
+            self.__get_ros_publishers(reader)
+            topics_types = RosUtil.get_topics_types(reader)
+            while reader.has_next():
+                ros_topic, ros_msg, _ = reader.read_next()
+                msg_type = get_message(topics_types[ros_topic])
+                ros_msg = deserialize_message(ros_msg, msg_type)
+                if self.use_time == "received":
+                    RosUtil.set_ros_msg_received_time(ros_msg)
+                self.ros_publishers[ros_topic].publish(ros_msg)
+            del reader
 
     def __read_s3(self, drain=False):
         bag_path = None
@@ -147,8 +178,12 @@ class RosbagConsumer(Process):
         try: 
             self.logger.info("starting rosbag_consumer:{0}".format(self.response_topic))
             node_name = "mozart_rosbag_{0}".format(random_string(6))
-            rospy.init_node(node_name)
-            
+            if ROS_VERSION == "1":
+                rospy.init_node(node_name)
+            elif ROS_VERSION == "2":
+                rclpy.init()
+                self.ros2_node = rclpy.create_node(node_name)
+                
             consumer = KafkaConsumer(self.response_topic, 
                                 bootstrap_servers=self.servers,
                                 auto_offset_reset="earliest",

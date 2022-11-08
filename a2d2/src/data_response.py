@@ -22,16 +22,10 @@ from __future__ import unicode_literals
 
 import sys, traceback
 from multiprocessing import Process
-import logging, time
-import json
-import random
-import string
-import os
-import threading
+import logging
 
 from manifest_producer import ManifestProducer
 from rosbag_producer import RosbagProducer
-from util import random_string
 
 class DataResponse(Process):
     def __init__(self, dbconfig=None, servers=None,

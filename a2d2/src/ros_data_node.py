@@ -18,25 +18,29 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-from signal import pause
 
 import sys, traceback
 import logging
 import json
 import os, time
 import threading
-import math
 
-from util import random_string, validate_data_request, get_s3_resource
+from util import random_string, validate_data_request, get_s3_client
 from util import create_manifest
 from s3_reader import S3Reader
 from ros_util import RosUtil
 from multiprocessing import Queue
+from ros_util import ROS_VERSION
 
 from std_msgs.msg import String
-import rospy
 import subprocess
 
+if ROS_VERSION == "1":
+    import rospy
+elif ROS_VERSION == "2":
+    import rclpy
+else:
+    raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
 class RosDataNode:
     DATA_REQUEST_TOPIC = "/mozart/data_request"
@@ -53,14 +57,17 @@ class RosDataNode:
             level=logging.INFO)
 
         self.logger.info("Start Rosbridge server")
-        subprocess.Popen(["roslaunch", "rosbridge_server", "rosbridge_websocket.launch"])
+        if ROS_VERSION == "1":
+            subprocess.Popen(["roslaunch", "rosbridge_server", "rosbridge_websocket.launch"])
+        elif ROS_VERSION == "2":
+            subprocess.Popen(["ros2", "launch", "rosbridge_server", "rosbridge_websocket_launch.xml"])
        
         self.dbconfig=config['database']
         self.data_store=config['data_store']
         calibration=config['calibration']
 
-        cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
-        cal_data = cal_obj.get()['Body'].read().decode('utf-8')
+        response = get_s3_client().get_object(Bucket=calibration["cal_bucket"], Key=calibration["cal_key"])
+        cal_data = response['Body'].read().decode('utf-8')
         self.cal_json = json.loads(cal_data)
 
         self.tmp = os.getenv("TMP", default="/tmp")
@@ -69,12 +76,18 @@ class RosDataNode:
         node_name = "mozart_datanode_{0}".format(random_string(6))
 
         self.logger.info("Init ROS node: {}, future log messages will be in ROS node log".format(node_name))
-        rospy.init_node(node_name)
-        rospy.Subscriber(RosDataNode.DATA_REQUEST_TOPIC, String, self.data_request_cb)
-        rospy.Subscriber(RosDataNode.DATA_REQUEST_CONTROL_TOPIC, String, self.data_request_control_cb)
+        if ROS_VERSION == "1":
+            rospy.init_node(node_name)
+            rospy.Subscriber(RosDataNode.DATA_REQUEST_TOPIC, String, self.data_request_cb, queue_size=64)
+            rospy.Subscriber(RosDataNode.DATA_REQUEST_CONTROL_TOPIC, String, self.data_request_control_cb, queue_size=64)
 
-        rospy.spin()
-      
+            rospy.spin()
+        elif ROS_VERSION == "2":
+            rclpy.init()
+            self.ros2_node = rclpy.create_node(node_name)
+            self.ros2_node.create_subscription(String,RosDataNode.DATA_REQUEST_TOPIC,self.data_request_cb, 64)
+            self.ros2_node.create_subscription(String,RosDataNode.DATA_REQUEST_CONTROL_TOPIC,self.data_request_control_cb, 64)
+            rclpy.spin(self.ros2_node)      
 
     def __init_request(self, request):
         self.manifests = dict() 
@@ -108,7 +121,7 @@ class RosDataNode:
         self.__set_max_rate(self.request.get(RosDataNode.MAX_RATE, 0))
 
         self.ros_publishers = dict()
-        self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else math.inf
+        self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else float('inf')
         self.sync_bus = self.request.get("sync_bus", True)
 
         self.__request_state = RosDataNode.PLAY
@@ -118,6 +131,8 @@ class RosDataNode:
             self.sleep_interval = (len(self.sensor_list)/max_rate)
         else:
             self.sleep_interval  = 0
+        
+        self.logger.info("interleaving sleep_interval:" + str(self.sleep_interval))
 
     def __handle_request(self, request):
 
@@ -137,18 +152,21 @@ class RosDataNode:
                 frame_id = sensor_frame_id.get(sensor, "map")
 
                 ros_data_class = RosUtil.get_data_class(data_type)
-                self.ros_publishers[sensor] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
+                if ROS_VERSION == "1":
+                    self.ros_publishers[sensor] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
+                elif ROS_VERSION == "2":
+                    self.ros_publishers[sensor] = self.ros2_node.create_publisher(ros_data_class, ros_topic, 64)
                 time.sleep(1)
                 t = threading.Thread(target=self.__publish_sensor, name=sensor,
                     kwargs={"manifest": manifest,  "sensor":  sensor, "frame_id": frame_id})
                 tasks.append(t)
                 t.start()
-                self.logger.info("Started thread:" + t.getName())
+                self.logger.info("Started thread:" + t.name)
 
             for t in tasks:
-                self.logger.info("Wait on thread:" + t.getName())
+                self.logger.info("Wait on thread:" + t.name)
                 t.join()
-                self.logger.info("Thread finished:" + t.getName())
+                self.logger.info("Thread finished:" + t.name)
 
             self.logger.info("Flush ROS sensors")
             self.__flush_sensors()
@@ -241,7 +259,7 @@ class RosDataNode:
         self.ros_publishers[sensor].publish(ros_msg)
         if not self.__is_bus_sensor(sensor):
             msg_ts = RosUtil.get_ros_msg_ts_nsecs(ros_msg)
-            if msg_ts > self.latest_msg_ts or self.latest_msg_ts == math.inf:
+            if msg_ts > self.latest_msg_ts or self.latest_msg_ts == float('inf'):
                 self.latest_msg_ts = msg_ts
 
             self.round_robin.append(sensor)

@@ -30,7 +30,7 @@ import signal
 from kafka import KafkaProducer
 from manifest_dataset import ManifestDataset
 from bus_dataset import BusDataset
-from util import random_string, is_cancel_msg, send_kafka_msg
+from util import random_string
 
 class ManifestProducer(Process):
     def __init__(self, dbconfig=None, servers=None, request=None):

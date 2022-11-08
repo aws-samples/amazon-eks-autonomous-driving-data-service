@@ -28,15 +28,21 @@ import os
 import threading
 import time
 import signal
-import math
-
-import rosbag
 
 from kafka import KafkaProducer
-from util import random_string, get_s3_resource
-from util import get_s3_client, mkdir_p, create_manifest, is_cancel_msg, send_kafka_msg
+from util import random_string
+from util import get_s3_client, mkdir_p, create_manifest
 from s3_reader import S3Reader
 from ros_util import RosUtil
+from ros_util import RosUtil, ROS_VERSION
+
+if ROS_VERSION == "1":
+    import rosbag
+elif ROS_VERSION == "2":
+    import rosbag2_py
+    from rclpy.serialization import serialize_message
+else:
+    raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
 class RosbagProducer(Process):
     
@@ -52,7 +58,6 @@ class RosbagProducer(Process):
         self.request = request
 
         self.data_store = data_store
-        self.calibration = calibration
         self.tmp = os.getenv("TMP", default="/tmp")
 
         RosUtil.create_cv_brigde()
@@ -74,14 +79,15 @@ class RosbagProducer(Process):
             if not self.rosbag_prefix.endswith("/"):
                 self.rosbag_prefix += "/"
 
-        cal_obj = get_s3_resource().Object(calibration["cal_bucket"], calibration["cal_key"])
-        cal_data = cal_obj.get()['Body'].read().decode('utf-8')
+        response = get_s3_client().get_object(Bucket=calibration["cal_bucket"], Key=calibration["cal_key"])
+        cal_data = response['Body'].read().decode('utf-8')
         self.cal_json = json.loads(cal_data) 
-
+       
         self.__init_request(dbconfig)
 
         signal.signal(signal.SIGINT, self.__exit_gracefully)
         signal.signal(signal.SIGTERM, self.__exit_gracefully)
+    
 
     def __init_request(self, dbconfig):
         self.manifests = dict() 
@@ -116,7 +122,10 @@ class RosbagProducer(Process):
             self.bag_lock = None
         
         if self.multipart:
-            self.chunk_count = len(self.sensor_list)*self.request.get("multipart_nmsgs", 2)
+            if ROS_VERSION == "1":
+                self.chunk_count = len(self.sensor_list)*self.request.get("multipart_nmsgs", 2)
+            elif ROS_VERSION == "2":
+                self.chunk_count = len(self.sensor_list)*self.request.get("multipart_nmsgs", 3)
 
         max_rate = self.request.get("max_rate", 0)
         if max_rate > 0:
@@ -125,7 +134,7 @@ class RosbagProducer(Process):
             self.sleep_interval  = 0
 
         self.ros_publishers = dict()
-        self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else math.inf
+        self.latest_msg_ts = 0 if len(self.sensor_list) > 1 else float('inf')
         self.sync_bus = self.request.get("sync_bus", True)
 
 
@@ -149,11 +158,33 @@ class RosbagProducer(Process):
 
         self.bag_name = name
         self.bag_path = os.path.join(self.bag_dir, name)
-        self.bag = rosbag.Bag(self.bag_path, 'w')
+        if ROS_VERSION == "1":
+            self.bag = rosbag.Bag(self.bag_path, 'w')
+        elif ROS_VERSION == "2":
+            self.bag = rosbag2_py.SequentialWriter()
+            storage_options = rosbag2_py.StorageOptions(uri=self.bag_path, storage_id='mcap', storage_preset_profile='zstd_fast')
+            converter_options = rosbag2_py.ConverterOptions(
+                input_serialization_format='cdr',
+                output_serialization_format='cdr')
+            self.bag.open(storage_options, converter_options)
+
+            sensors = self.request["sensor_id"]
+            for s in sensors:
+                data_type = self.request["data_type"][s]
+                ros_topic = self.request['ros_topic'][s]
+                topic_info = rosbag2_py.TopicMetadata(
+                        name=ros_topic,
+                        type=data_type,
+                        serialization_format='cdr')
+                self.bag.create_topic(topic_info)
 
     def __close_bag(self, s3_client=None):
         if self.bag:
-            self.bag.close()
+            if ROS_VERSION == "1":
+                self.bag.close()
+            elif ROS_VERSION == "2":
+                del self.bag
+
             resp_topic = self.request['response_topic']
             if self.accept.startswith("s3/"):
                 if s3_client == None:
@@ -184,11 +215,14 @@ class RosbagProducer(Process):
         if not self.bag:
             self.__open_bag()
         topic = self.request['ros_topic'][sensor]
-        self.bag.write(topic, msg)
+        if ROS_VERSION == "1":
+            self.bag.write(topic, msg)
+        elif ROS_VERSION == "2":
+            self.bag.write(topic, serialize_message(msg), int(time.time()*1000000))
 
         if not self.__is_bus_sensor(sensor):
             msg_ts = RosUtil.get_ros_msg_ts_nsecs(msg)
-            if msg_ts > self.latest_msg_ts or self.latest_msg_ts == math.inf:
+            if msg_ts > self.latest_msg_ts or self.latest_msg_ts == float('inf'):
                 self.latest_msg_ts = msg_ts
 
             self.round_robin.append(sensor)
@@ -483,12 +517,12 @@ class RosbagProducer(Process):
                     kwargs={"manifest": manifest,  "sensor":  s, "frame_id": frame_id})
                 tasks.append(t)
                 t.start()
-                self.logger.info("Started thread:" + t.getName())
+                self.logger.info("Started thread:" + t.name)
 
             for t in tasks:
-                self.logger.info("Wait on thread:" + t.getName())
+                self.logger.info("Wait on thread:" + t.name)
                 t.join()
-                self.logger.info("Thread finished:" + t.getName())
+                self.logger.info("Thread finished:" + t.name)
 
             self.logger.info("Flush ROS bag")
             self.__flush_bag()

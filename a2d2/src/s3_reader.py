@@ -20,12 +20,10 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import sys, traceback
-from multiprocessing import Process, Queue
+from multiprocessing import Process
 import logging
-import string
 import os
 
-import boto3
 from util import get_s3_client, random_string
 
 class S3Reader(Process):

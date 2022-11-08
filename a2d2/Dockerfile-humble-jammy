@@ -1,0 +1,62 @@
+FROM ubuntu:jammy-20221020
+
+RUN apt-get update
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt install -y tzdata
+RUN apt install -y keyboard-configuration
+
+RUN apt install -y gnupg2
+RUN apt install -y lsb-core 
+
+RUN apt install -y python3-minimal
+RUN test -f /usr/bin/python || ln -s $(which python3) /usr/bin/python
+RUN apt install -y python3-pip
+RUN test -f /usr/bin/pip || ln -s $(which pip3) /usr/bin/pip
+RUN pip install --upgrade pip
+RUN pip install awscli
+RUN pip install boto3
+RUN pip install kafka-python
+RUN pip install psycopg2-binary
+RUN pip install numpy
+RUN pip install pyquaternion
+
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key  -o /usr/share/keyrings/ros-archive-keyring.gpg
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+RUN apt-get update
+
+RUN apt install -y python3-opencv
+RUN apt install -y python3-colcon-common-extensions
+RUN apt install -y ros-humble-desktop 
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+RUN /bin/bash -c "source ~/.bashrc"
+RUN apt install -y python3-rosdep python3-rosinstall python3-rosinstall-generator python3-wstool build-essential
+RUN apt install -y python3-rosdep
+
+RUN rosdep init
+RUN rosdep update
+RUN apt install -y ros-humble-rosbridge-suite
+RUN apt install -y ros-humble-rosbag2-storage-mcap
+RUN apt install -y ros-humble-rosbridge-server
+
+ENV ROS_VERSION=2
+ENV ROS_PYTHON_VERSION=3
+ENV AMENT_PREFIX_PATH=/opt/ros/humble
+ENV PYTHONPATH=/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages
+ENV LD_LIBRARY_PATH=/opt/ros/humble/opt/yaml_cpp_vendor/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib
+ENV ROS_LOCALHOST_ONLY=0
+ENV PATH=/opt/ros/humble/bin:$PATH
+ENV ROS_DISTRO=humble
+
+
+RUN apt install -y vim
+COPY src /mozart
+COPY bin/*.sh /usr/local/bin/
+
+RUN echo $PYTHONPATH 
+COPY colcon_ws /colcon_ws
+RUN rm -rf /colcon_ws/build /colcon_ws/install /colcon_ws/log
+RUN cd /colcon_ws &&  colcon build 
+
+ENV AMENT_PREFIX_PATH=/colcon_ws/install/a2d2_msgs:${AMENT_PREFIX_PATH}
+ENV PYTHONPATH=/colcon_ws/install/a2d2_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH}
+ENV LD_LIBRARY_PATH=/colcon_ws/install/a2d2_msgs/lib:${LD_LIBRARY_PATH}

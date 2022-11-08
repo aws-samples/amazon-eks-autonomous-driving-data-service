@@ -19,7 +19,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import logging, time
+import logging
 import json
 from db_reader import DatabaseReader
 from threading import Thread

@@ -31,15 +31,18 @@ import json
 
 from manifest_dataset import ManifestDataset
 from bus_dataset import BusDataset
-from kafka import KafkaConsumer, KafkaProducer, KafkaAdminClient
+from kafka import  KafkaProducer, KafkaAdminClient
+from concurrent.futures import ThreadPoolExecutor # Workaround for https://github.com/boto/boto3/issues/3221 
 
 def get_s3_client():
+
     s3_client = None
     try:
         session = boto3.session.Session()
         s3_client = session.client('s3')
     except Exception as e:
         try:
+            print(str(e))
             print(os.environ['AWS_WEB_IDENTITY_TOKEN_FILE'])
             print(os.environ['AWS_ROLE_ARN'])
             s3_client = boto3.client('s3')
@@ -50,23 +53,6 @@ def get_s3_client():
 
     assert(s3_client != None)
     return s3_client
-
-def get_s3_resource():
-    s3_resource = None
-    try:
-        session = boto3.session.Session()
-        s3_resource = session.resource('s3')
-    except Exception as e:
-        try:
-            print(os.environ['AWS_WEB_IDENTITY_TOKEN_FILE'])
-            print(os.environ['AWS_ROLE_ARN'])
-            s3_resource = boto3.resource('s3')
-        except Exception as e:
-            _, _, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            print(str(e))
-
-    return s3_resource
 
 def random_string(length=16):
     s = ''

@@ -142,6 +142,13 @@ $scripts_dir/eks-cluster-autoscaler.sh
 # Build ECR image
 $scripts_dir/build-ecr-image.sh
 
+if [[ $ROS_DISTRO == 'melodic' || $ROS_DISTRO == 'noetic' ]]
+then
 # Build catkin_ws
 cd $DIR/a2d2/catkin_ws && catkin_make
 echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/catkin_ws/devel/setup.bash" >> /home/ubuntu/.bashrc
+else
+# Build colcon_ws
+cd $DIR/a2d2/colcon_ws && colcon build
+echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/colcon_ws/install/setup.bash" >> /home/ubuntu/.bashrc
+fi

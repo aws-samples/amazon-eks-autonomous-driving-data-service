@@ -62,16 +62,21 @@ def main(config):
             logger.info(str(kafka_config))
 
             cluster_info = client.describe_cluster( ClusterArn=config['cluster-arn'])
+            software_info = cluster_info['ClusterInfo']['CurrentBrokerSoftwareInfo']
+            configuration_arn = software_info.get('ConfigurationArn')
 
-            response = client.update_cluster_configuration(
-                ClusterArn=config['cluster-arn'],
-                ConfigurationInfo={
-                        'Arn': kafka_config['Arn'],
-                        'Revision': kafka_config['LatestRevision']['Revision'] 
-                },
-                CurrentVersion=cluster_info['ClusterInfo']['CurrentVersion']
-            )
-            logger.info(str(response))
+            if kafka_config['Arn'] != configuration_arn:
+                response = client.update_cluster_configuration(
+                    ClusterArn=config['cluster-arn'],
+                    ConfigurationInfo={
+                            'Arn': kafka_config['Arn'],
+                            'Revision': kafka_config['LatestRevision']['Revision'] 
+                    },
+                    CurrentVersion=cluster_info['ClusterInfo']['CurrentVersion']
+                )
+                logger.info(str(response))
+            else:
+                logger.info("Kafka configuration is updated")
 
     except Exception as e:
         _, _, exc_traceback = sys.exc_info()
