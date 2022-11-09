@@ -288,7 +288,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | RedshiftNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for Redshift cluster. Default value is ```ra3.4xlarge```.|
 | RedshiftNumberOfNodes | This is a **required** parameter whereby you specify the number of compute nodes in the Redshift cluster, which must be >= 2.|
 | RedshiftPortNumber | This is a **required** parameter whereby you specify the port number on which the Redshift cluster accepts incoming connections. Default value is ```5439```.|
-| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are ```melodic``` on Ubuntu Bionic, and ```noetic```  on Ubuntu Focal. Default value is ```noetic```.|
+| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are ```melodic``` on Ubuntu Bionic,  ```noetic```  on Ubuntu Focal, and ```humble``` on Ubuntu Jammy. Default value is ```noetic```.|
 | S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
 | UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|
 | VpcCIDR | This is a **required** parameter whereby you specify the [Amazon VPC](https://aws.amazon.com/vpc/?vpc-blogs.sort-by=item.additionalFields.createdDate&vpc-blogs.sort-order=desc) CIDR for the VPC created in the stack. Default value is 172.30.0.0/16. If you change this value, all the subnet parameters above may need to be set, as well.|
