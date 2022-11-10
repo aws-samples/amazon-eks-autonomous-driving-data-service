@@ -1,0 +1,488 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Mozart data service desktop. This stack depends on data service stack.
+Parameters:
+  DataServiceStackName:
+    Description: Name of data service stack
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9][a-zA-Z0-9-\.]*'
+
+  DesktopRemoteAccessCIDR:
+    Description: Remote access Ip V4 CIDR
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    Type: String
+
+  DesktopInstanceType:
+    Description: >-
+     EC2 instance type for desktop.
+    Type: String
+    Default: g4dn.xlarge
+    AllowedValues:
+      - m5n.xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - g3s.xlarge
+      - g3.4xlarge
+      - g3.8xlarge
+      - g3.16xlarge
+      - g4dn.xlarge
+      - g4dn.2xlarge
+      - g4dn.4xlarge
+      - g4dn.8xlarge
+      - g4dn.12xlarge
+      - g4dn.16xlarge
+     
+    ConstraintDescription: Must be a valid GPU EC2 instance type.
+  
+  DesktopEbsVolumeSize:
+    Description: Desktop EBS volume size (GiB) 
+    Type: Number
+    MinValue: 200
+    Default: 200
+
+  DesktopEbsVolumeType:
+    Default: 'gp3'
+    Description: Desktop EBS volume type
+    Type: String
+    AllowedValues:
+      - 'gp2'
+      - 'gp3'
+
+  KeyPairName:
+    Description: EC2 SSH KeyPair Name
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    AllowedPattern: '^[\x00-\x7F]{1,255}[^.\s]$'
+
+  DesktopHasPublicIpAddress:
+    Description: Should a Public Ip Address be associated with the Desktop?
+    Type: String
+    Default: "true"
+    AllowedValues:
+     - "true"
+     - "false"
+
+Resources:
+  
+  DesktopSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Desktop security group
+      VpcId:
+        Fn::ImportValue: !Sub "${DataServiceStackName}-Vpc" 
+      Tags:
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+
+  DesktopSecurityGroupCIDRIngress1: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from CIDR for NICE-DCV access to graphics desktop
+      GroupId: !GetAtt DesktopSecurityGroup.GroupId
+      CidrIp: !Ref DesktopRemoteAccessCIDR
+      IpProtocol: tcp
+      FromPort: 8443
+      ToPort: 8443
+
+  DesktopSecurityGroupCIDRIngress2: 
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: Ingress from CIDR for SSH access to graphics desktop
+      GroupId: !GetAtt DesktopSecurityGroup.GroupId
+      CidrIp: !Ref DesktopRemoteAccessCIDR
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+
+  DesktopSecurityGroupCIDREgress: 
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      Description: Egress rule for out bound traffic
+      GroupId: !GetAtt DesktopSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      CidrIp: '0.0.0.0/0'
+
+  DesktopInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: 
+        Fn::ImportValue: !Sub '${DataServiceStackName}-DesktopAMI'
+      InstanceType: !Ref DesktopInstanceType
+      EbsOptimized: true
+      IamInstanceProfile: 
+        Fn::ImportValue: !Sub '${DataServiceStackName}-DesktopInstanceProfile'
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: !Ref DesktopEbsVolumeSize
+            VolumeType: !Ref DesktopEbsVolumeType
+            Encrypted: true
+            DeleteOnTermination: true
+      NetworkInterfaces: 
+      - AssociatePublicIpAddress: !Ref DesktopHasPublicIpAddress
+        DeviceIndex: "0"
+        GroupSet: 
+          - !Ref DesktopSecurityGroup
+        SubnetId: 
+          Fn::ImportValue: !Sub '${DataServiceStackName}-DesktopSubnet'
+    
+      KeyName: !Ref KeyPairName
+      Tags: 
+        - Key: "Name"
+          Value: !Sub '${AWS::StackName}-desktop'
+
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              Content-Type: multipart/mixed; boundary="//"
+              MIME-Version: 1.0
+
+              --//
+              Content-Type: text/cloud-config; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="cloud-config.txt"
+
+              #cloud-config
+              cloud_final_modules:
+              - [scripts-user, always]
+
+              --//
+              Content-Type: text/x-shellscript; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="userdata.txt"
+
+              #!/bin/bash -xe
+
+              if [[ -f "/home/ubuntu/desktop.init" ]]
+              then
+                /usr/local/bin/mount-efs.sh
+                apt-get install -y lustre-client-modules-$(uname -r) && /usr/local/bin/mount-fsx.sh
+                exit 0
+              fi
+
+              echo "Cloud init in progress. Machine will REBOOT after cloud init is complete!!" > /etc/motd
+             
+              # Find Ubuntu Version 
+              VERSION=$(lsb_release -a | grep Release | awk -F ":" '{print $2}' | sed -E -e 's/[[:blank:]]+//g')
+              echo "Detected Ubuntu $VERSION"
+
+              # setup graphics desktop
+              export DEBIAN_FRONTEND=noninteractive
+              export DEBCONF_NONINTERACTIVE_SEEN=true
+
+              # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
+              [[ ! -x "$(command -v nvidia-smi)" ]] && \
+                apt-get update && apt-get -y upgrade && \
+                apt-get -y install ubuntu-drivers-common && \
+                [[ ! -z "$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')" ]] && \
+                apt-get -y install linux-headers-$(uname -r) && \
+                (( [[ $VERSION == "20.04" ]] && \
+                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
+                    mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub && \
+                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" ) || \
+                  ( [[ $VERSION == "22.04" ]] && \
+                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin && \
+                    mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub && \
+                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /" ) ) && \
+                apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y autoremove && \
+                apt-get -y install cuda-11-8 && \
+                apt-get -y install libcudnn8=8.6.0.163-1+cuda11.8 && \
+                apt-get -y install libcudnn8-dev=8.6.0.163-1+cuda11.8 && \
+                echo "export PATH=/usr/local/cuda-11.8/bin:$PATH" >> /home/ubuntu/.bashrc && \
+                echo "export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH" >> /home/ubuntu/.bashrc && \
+                reboot
+
+              # setup software repo for docker
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+              apt-key fingerprint 0EBFCD88
+              add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+   
+              # add key for fsx-lustre client
+              wget -O - https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-ubuntu-public-key.asc | apt-key add -
+              
+              # add key for NICE-DCV
+              wget https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY
+              gpg --import NICE-GPG-KEY
+
+              # update and install required packages
+              apt-get update
+
+              apt-get install -y git tar
+              apt-get install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+              
+              # install docker if it is not installed
+              if [ ! -x "$(command -v docker)" ]; then
+                apt-get install -y docker-ce docker-ce-cli containerd.io      
+                usermod -aG docker ubuntu
+
+                # install nvidia container toolkit if we have a nvidia GPU
+                if [[ -x "$(command -v nvidia-smi)" ]]
+                then
+                  curl -s -L https://nvidia.github.io/nvidia-container-runtime/gpgkey |  apt-key add -
+                  distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+                  curl -s -L https://nvidia.github.io/nvidia-container-runtime/$distribution/nvidia-container-runtime.list | \
+                    tee /etc/apt/sources.list.d/nvidia-container-runtime.list
+                  apt-get update
+                  apt-get -y install nvidia-container-toolkit
+                fi
+              fi
+
+              apt-get install -y tzdata
+              apt-get install -y keyboard-configuration
+              apt-get install -y gnupg2
+              apt-get install -y lsb-core 
+
+              # install DCV server
+              echo "install DCV server..."
+              apt-get install -y ubuntu-desktop
+              
+              ROS=${RosVersion}
+              if [[ $VERSION == "20.04" ]]
+              then
+                [[ $ROS != 'noetic' ]] && echo "RosVersion must be 'noetic' for Ubuntu $VERSION" && exit 1
+                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+                
+                # setup software repo for ros
+                sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
+                apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
+                apt-get update
+                
+                apt-get install -y gdm3
+                apt-get -y upgrade || echo "ignoring upgrade error"
+                echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
+                dpkg-reconfigure gdm3
+                sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
+                systemctl restart gdm3
+
+                apt-get install -y mesa-utils
+                if [ -x "$(command -v nvidia-xconfig)" ]; then
+                  nvidia-xconfig --preserve-busid --enable-all-gpus
+                fi
+
+                #restart X server
+                echo "restart X-server"
+                systemctl set-default graphical.target
+                systemctl isolate graphical.target
+
+                wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
+                tar -xvzf nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
+                cd nice-dcv-2020.2-9662-ubuntu2004-x86_64
+                apt-get install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+              elif [[ $VERSION == "22.04" ]]
+              then   
+                [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
+                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu jammy main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+                
+                add-apt-repository universe
+                curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+                apt-get update
+
+                apt-get -y install gdm3
+                apt-get -y upgrade || echo "ignoring upgrade error"
+                echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
+                dpkg-reconfigure gdm3
+                sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
+                systemctl restart gdm3
+
+                apt-get -y install mesa-utils
+                if [ -x "$(command -v nvidia-xconfig)" ]; then
+                  nvidia-xconfig --preserve-busid --enable-all-gpus
+                fi
+
+                #restart X server
+                echo "restart X-server"
+                systemctl set-default graphical.target
+                systemctl isolate graphical.target
+
+                wget https://d1uj6qtbmh3dt5.cloudfront.net/2022.1/Servers/nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
+                tar -xvzf nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
+                cd nice-dcv-2022.1-13300-ubuntu2204-x86_64
+                apt-get -y install ./nice-dcv-server_2022.1.13300-1_amd64.ubuntu2204.deb/
+              else
+                echo "Ubuntu $VERSION is not supported; must be one of 20.04, or 22.04"
+                exit 1
+              fi
+            
+              #restart X server
+              systemctl set-default graphical.target
+              systemctl isolate graphical.target
+
+              # Create DCV server configuration file
+              [[ -d  /opt/dcv-session-store ]] || mkdir  /opt/dcv-session-store
+              echo "[license]" >> dcv.conf
+              echo "[log]" >> dcv.conf
+              echo "[session-management]" >> dcv.conf
+              echo "[session-management/defaults]" >> dcv.conf
+              echo "[session-management/automatic-console-session]" >> dcv.conf
+              echo "storage-root=\"/opt/dcv-session-store/\"" >> dcv.conf
+              echo "[display]" >> dcv.conf
+              echo "[connectivity]" >> dcv.conf
+              echo "[security]" >> dcv.conf
+              echo "authentication=\"system\"" >> dcv.conf
+              echo "[clipboard]" >> dcv.conf
+              echo "primary-selection-copy=true" >> dcv.conf
+              echo "primary-selection-paste=true" >> dcv.conf
+              mv dcv.conf /etc/dcv/dcv.conf
+
+              # Enable DCV server
+              systemctl enable dcvserver
+
+              # Create DCV session permissions files
+              rm -f /home/ubuntu/dcv.perms
+              echo "[permissions]" >> /home/ubuntu/dcv.perms
+              echo "%owner% allow builtin" >> /home/ubuntu/dcv.perms
+
+              # Create startup session script
+              echo "#!/bin/bash" >> /usr/local/bin/start-dcvsession.sh
+              echo "dcv create-session --type=console --owner ubuntu --storage-root /opt/dcv-session-store/ --permissions-file /home/ubuntu/dcv.perms dcvsession" >> /usr/local/bin/start-dcvsession.sh
+              chmod a+x /usr/local/bin/start-dcvsession.sh
+
+              echo "[Unit]" >> /etc/systemd/system/dcvsession.service
+              echo "Description=DCV session service" >> /etc/systemd/system/dcvsession.service
+              echo "After=dcvserver.service" >> /etc/systemd/system/dcvsession.service
+              echo "" >> /etc/systemd/system/dcvsession.service
+              echo "[Service]" >> /etc/systemd/system/dcvsession.service
+              echo "User=root" >> /etc/systemd/system/dcvsession.service
+              echo "ExecStart=/usr/local/bin/start-dcvsession.sh" >> /etc/systemd/system/dcvsession.service
+              echo "Restart= on-abort" >> /etc/systemd/system/dcvsession.service
+              echo "" >> /etc/systemd/system/dcvsession.service
+              echo "[Install]" >> /etc/systemd/system/dcvsession.service
+              echo "WantedBy=graphical.target" >> /etc/systemd/system/dcvsession.service
+
+              systemctl enable dcvsession
+              echo "install DCV server complete"
+          
+              # install nfs-common
+              apt-get install -y nfs-common
+
+              apt-get install -y python3-minimal  python3-pip
+              test -f /usr/bin/python || ln -s `which python3` /usr/bin/python
+              pip3 install --upgrade pip
+              pip3 install boto3
+              pip3 install kafka-python
+              pip3 install psycopg2-binary
+              pip3 install --upgrade awscli
+              pip3 install jupyterlab
+              pip3 install pyquaternion
+
+              # install ros
+              echo "install ros $ROS ..."
+              
+              apt-get install -y ros-$ROS-desktop-full 
+              echo "source /opt/ros/$ROS/setup.bash" >> /home/ubuntu/.bashrc
+              apt-get install -y python3-rosdep python3-rosinstall python3-rosinstall-generator python3-wstool build-essential
+
+              if [[ ! -d /etc/ros/rosdep/sources.list.d ]]
+              then
+                rosdep init
+              fi
+              sudo -u ubuntu rosdep update
+
+              if [[ $ROS == 'humble' ]]
+              then
+                apt-get install -y python3-colcon-common-extensions
+                apt-get install -y ros-humble-rosbag2-storage-mcap
+                apt-get install -y ros-humble-rosbridge-server
+              fi
+
+              # Create roscore startup script
+              echo "#!/bin/bash" >> /usr/local/bin/start-roscore.sh
+              echo "source /opt/ros/$ROS/setup.bash" >> /usr/local/bin/start-roscore.sh
+              echo "roscore" >> /usr/local/bin/start-roscore.sh
+              chmod a+x /usr/local/bin/start-roscore.sh
+
+              echo "[Unit]" >> /etc/systemd/system/roscore.service
+              echo "Description=roscore service" >> /etc/systemd/system/roscore.service
+              echo "" >> /etc/systemd/system/roscore.service
+              echo "[Service]" >> /etc/systemd/system/roscore.service
+              echo "User=ubuntu" >> /etc/systemd/system/roscore.service
+              echo "ExecStart=/usr/local/bin/start-roscore.sh" >> /etc/systemd/system/roscore.service
+              echo "Restart=on-abort" >> /etc/systemd/system/roscore.service
+              echo "" >> /etc/systemd/system/roscore.service
+              echo "[Install]" >> /etc/systemd/system/roscore.service
+              echo "WantedBy=graphical.target" >> /etc/systemd/system/roscore.service
+
+              systemctl enable roscore
+              echo "install Ros $ROS complete"
+
+              # install foxglove studio
+              wget https://github.com/foxglove/studio/releases/download/v1.30.0/foxglove-studio-1.30.0-linux-amd64.deb \
+                && apt-get install -y ./foxglove-studio-1.30.0-linux-amd64.deb
+
+              # clone repository
+              [[ ! -d /home/ubuntu/amazon-eks-autonomous-driving-data-service ]] && cd /home/ubuntu && \
+                git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
+              export DIR=/home/ubuntu/amazon-eks-autonomous-driving-data-service
+              chown -R ubuntu:ubuntu  $DIR
+                          
+              # update /home/ubuntu/.bashrc
+              echo "export cfn_stack_name=${DataServiceStackName}" >> /home/ubuntu/.bashrc
+              
+              # Create FSX mount script 
+              cat >/usr/local/bin/mount-fsx.sh <<EOL
+              #!/bin/bash
+
+              # Mount FSx
+              [[ -d /fsx ]] || mkdir /fsx
+              mount -t lustre -o noatime,flock ${FSxId}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxMountName} /fsx
+              EOL
+
+              chmod u+x /usr/local/bin/mount-fsx.sh
+
+              # Create EFS mount script 
+              cat >/usr/local/bin/mount-efs.sh <<EOL
+              #!/bin/bash
+
+              # Mount EFS
+              [[ -d /efs ]] || mkdir /efs
+              mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${EFSId}.efs.${AWS::Region}.amazonaws.com:/ /efs
+
+              EOL
+              chmod u+x /usr/local/bin/mount-efs.sh
+
+              # Create config file
+              [[ -d /home/ubuntu/.aws ]] || mkdir /home/ubuntu/.aws
+              cat >/home/ubuntu/.aws/config <<EOL
+              [default]
+              region = ${AWS::Region}
+              output=json
+
+              EOL
+              chown -R ubuntu:ubuntu /home/ubuntu/.aws
+
+              # install kubectl for EKS
+              [[ -d /usr/local/bin ]] || mkdir -p /usr/local/bin
+              curl -o /usr/local/bin/kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/${KubectlVersion}/bin/linux/amd64/kubectl
+              chmod a+x /usr/local/bin/kubectl
+              curl -o /usr/local/bin/aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/${KubectlVersion}/bin/linux/amd64/aws-iam-authenticator
+              sudo -u  ubuntu aws sts get-caller-identity
+              sudo -u  ubuntu aws eks --region ${AWS::Region} update-kubeconfig --name ${EKSClusterName}
+
+              # install helm
+              curl -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+              chmod 700 /tmp/get_helm.sh
+              /tmp/get_helm.sh
+              rm /tmp/get_helm.sh
+
+              touch /home/ubuntu/desktop.init
+              echo "NICE DCV server is enabled!" > /etc/motd
+              reboot
+            - FSxId:
+                Fn::ImportValue: !Sub "${DataServiceStackName}-FSxId"
+              FSxMountName:
+                Fn::ImportValue: !Sub "${DataServiceStackName}-FSxMountName"
+              EFSId:
+                Fn::ImportValue: !Sub "${DataServiceStackName}-EFSId"
+              KubectlVersion:
+                Fn::ImportValue: !Sub "${DataServiceStackName}-KubectlVersion"
+              RosVersion:
+                Fn::ImportValue: !Sub "${DataServiceStackName}-RosVersion"
+              EKSClusterName:
+                Fn::ImportValue: !Sub "${DataServiceStackName}-EKSClusterName"
