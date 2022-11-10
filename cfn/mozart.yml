@@ -22,11 +22,11 @@ Parameters:
       - "Headless"
   
   DataClientType:
-    Description: RosBag and RosBridge support, or RosBridge support only.
-    Default: "RosBagAndRosBridge"
+    Description: Kafka and RosBridge support, or RosBridge support only.
+    Default: "KafkaAndRosBridge"
     Type: String
     AllowedValues:
-      - "RosBagAndRosBridge"
+      - "KafkaAndRosBridge"
       - "RosBridge"
       
   VpcCIDR:
@@ -278,7 +278,7 @@ Conditions:
       - !Ref UbuntuAMI
       - ''
   EuCentral1: !Equals [ !Ref AWS::Region, "eu-central-1" ]
-  MSKEnabled: !Equals [ !Ref DataClientType, "RosBagAndRosBridge" ]
+  MSKEnabled: !Equals [ !Ref DataClientType, "KafkaAndRosBridge" ]
 
 Mappings:
   noetic:

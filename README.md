@@ -259,7 +259,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | DesktopHasPublicIpAddress | This is a **required** parameter whereby you select whether a Public Ip Address be associated with the Desktop.  Default value is ```true```.|
 | DesktopRemoteAccessCIDR | This parameter specifies the public IP CIDR range from where you need remote access to your client desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
 | DesktopType | This parameter specifies support for `Graphical` desktop with NICE-DCV server enabled, or `Headless` desktop with NICE-DCV server disabled. Default value is `Graphical`.|
-| DataClientType | This parameter specifies support for `RosBagAndRosBridge`, or `RosBridge` only. Default value is `RosBagAndRosBridge`.|
+| DataClientType | This parameter specifies support for `KafkaAndRosBridge`, or `RosBridge` only. Default value is `KafkaAndRosBridge`.|
 | EKSEncryptSecrets | This is a **required** parameter whereby you select if encryption of EKS secrets is ```Enabled```. Default value is ```Enabled```.|
 | EKSEncryptSecretsKmsKeyArn | This is an *optional* advanced parameter whereby you specify the [AWS KMS](https://aws.amazon.com/kms/) key ARN that is used to encrypt EKS secrets. Leave blank to create a new KMS key.|
 | EKSNodeGroupInstanceType | This is a **required** parameter whereby you select EKS Node group EC2 instance type. Default value is ```r5n.8xlarge```.|
