@@ -194,8 +194,8 @@ Parameters:
   
   UbuntuAMI:
     Description: >-
-      Advanced option to override Ubuntu AMI with version 18.04, or 20.04. 
-      ROS  'melodic' requires 18.04, 'noetic' requires 20.04, and 'foxy' requires 22.04.
+      Advanced option to override Ubuntu AMI. 
+      ROS1 'noetic' requires Ubuntu 20.04, and ROS2 'humble' requires Ubuntu 22.04.
     Type: String
     AllowedPattern: '(ami-[0-9a-z]{17})?'
 
@@ -250,13 +250,12 @@ Parameters:
 
   RosVersion:
     Description: >-
-     ROS version. For ROS1, use 'noetic'. For ROS2, use 'humble'. ROS1 'melodic' is deprecated. 
+     ROS version. For ROS1, use 'noetic'. For ROS2, use 'humble'. 
     Type: String
     Default: "noetic"
     AllowedValues:
      - "noetic"
      - "humble"
-     - "melodic"
 
   FargateComputeMax:
     Description: Maximum size of compute environment in vCpus
@@ -282,69 +281,48 @@ Conditions:
   MSKEnabled: !Equals [ !Ref DataClientType, "RosBagAndRosBridge" ]
 
 Mappings:
-  melodic:
-    us-east-1:
-      AMI: ami-052474ad05a707726
-    us-east-2:
-      AMI: ami-0766d84b731e45cb6 
-    us-west-2:
-      AMI: ami-07e00b8a1a054fdbf 
-    eu-west-1:
-      AMI: ami-02174249e65e06bea 
-    eu-central-1:
-      AMI: ami-0d4f8a81cb29d4e3f 
-    ap-southeast-1:
-      AMI: ami-06c1196e3aefdb899 
-    ap-southeast-2:
-      AMI: ami-0ff9d71ef519ffd29 
-    ap-south-1:
-      AMI: ami-0f326447840c78c9a 
-    ap-northeast-1:
-      AMI: ami-075558eae9ec402e1 
-    ap-northeast-2:
-      AMI: ami-07fdae2b415bf7289
   noetic:
     us-east-1:
-      AMI: ami-0d47ff0cf6fdae248
+      AMI: ami-0edaaf6893668e6b0
     us-east-2:
-      AMI: ami-0f13ba3eb5f121248
+      AMI: ami-05982b44d62ceee24
     us-west-2:
-      AMI: ami-000f76952a7e3392f
+      AMI: ami-0597f94f56d2d2f9a
     eu-west-1:
-      AMI: ami-038f25401c9d1e8b4
+      AMI: ami-021f75d7aec8edca3
     eu-central-1:
-      AMI: ami-04653c23df246576d
+      AMI: ami-0bd10b8eaf80b8f6f
     ap-southeast-1:
-      AMI: ami-03ea76a36bec93abf
+      AMI: ami-02349877f59f5f045
     ap-southeast-2:
-      AMI: ami-0890b914372a4c40d
+      AMI: ami-08dc67a7da7ad13b6
     ap-south-1:
-      AMI: ami-0032f7b1162963f95
+      AMI: ami-07ac8f7c0faa696f5
     ap-northeast-1:
-      AMI: ami-008eb3d0705154428
+      AMI: ami-062021fe0ad5f5c9e
     ap-northeast-2:
-      AMI: ami-008d135ee5a077b34
+      AMI: ami-04eb2296745051d64
   humble:
     us-east-1:
-      AMI: ami-0df98d1c227268eca
+      AMI: ami-0f45714212565e2c5
     us-east-2:
-      AMI: ami-01ad0b22f20e31794
+      AMI: ami-0a5495c9c5bac4e84
     us-west-2:
-      AMI: ami-0573d9e7f7c229af1
+      AMI: ami-0c616e46f89a983a9
     eu-west-1:
-      AMI: ami-022c5f58cc6a57b1b
+      AMI: ami-0f06674b2cdfca9c2
     eu-central-1:
-      AMI: ami-0c49b1f4a762ff82f
+      AMI: ami-065a81264fe36b49c
     ap-southeast-1:
-      AMI: ami-06be72127bdf48298
+      AMI: ami-0369d5fd05f84e3a9
     ap-southeast-2:
-      AMI: ami-04345f15b1bbae51a
+      AMI: ami-0704377fe6b147e48
     ap-south-1:
-      AMI: ami-03b4c3a597963541c
+      AMI: ami-064547413f6e196d4
     ap-northeast-1:
-      AMI: ami-0fafdd9db4ee92c09
+      AMI: ami-02e454cedebdafc59
     ap-northeast-2:
-      AMI: ami-0ed9f71f8f7c3376f
+      AMI: ami-028fa55537e8e6f20
 
 Resources:
   Vpc:
@@ -2067,7 +2045,7 @@ Resources:
               if [[ -f "/home/ubuntu/desktop.init" ]]
               then
                 /usr/local/bin/mount-efs.sh
-                apt install -y lustre-client-modules-$(uname -r) && /usr/local/bin/mount-fsx.sh
+                apt-get install -y lustre-client-modules-$(uname -r) && /usr/local/bin/mount-fsx.sh
                 exit 0
               fi
 
@@ -2088,12 +2066,7 @@ Resources:
                 apt-get -y install ubuntu-drivers-common && \
                 [[ ! -z "$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')" ]] && \
                 apt-get -y install linux-headers-$(uname -r) && \
-                ( ( [[ $VERSION == "18.04" ]] &&
-                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/cuda-ubuntu1804.pin && \
-                    mv cuda-ubuntu1804.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/3bf863cc.pub && \
-                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/ /" ) || \
-                  ( [[ $VERSION == "20.04" ]] && \
+                ( ( [[ $VERSION == "20.04" ]] && \
                     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
                     mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
                     apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub && \
@@ -2124,14 +2097,14 @@ Resources:
               gpg --import NICE-GPG-KEY
 
               # update and install required packages
-              apt update
+              apt-get update
 
-              apt install -y git tar
-              apt install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+              apt-get install -y git tar
+              apt-get install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
               
               # install docker if it is not installed
               if [ ! -x "$(command -v docker)" ]; then
-                apt install -y docker-ce docker-ce-cli containerd.io      
+                apt-get install -y docker-ce docker-ce-cli containerd.io      
                 usermod -aG docker ubuntu
 
                 # install nvidia container toolkit if we have a nvidia GPU
@@ -2146,68 +2119,39 @@ Resources:
                 fi
               fi
 
-              apt install -y tzdata
-              apt install -y keyboard-configuration
-              apt install -y gnupg2
-              apt install -y lsb-core 
+              apt-get install -y tzdata
+              apt-get install -y keyboard-configuration
+              apt-get install -y gnupg2
+              apt-get install -y lsb-core 
 
               # install DCV server
               if [[ "${DesktopType}" == "Graphical" ]] 
               then
                 echo "install DCV server..."
-                apt install -y ubuntu-desktop
+                apt-get install -y ubuntu-desktop
               fi
 
-              if [[ $VERSION == "18.04" ]]
+              ROS=${RosVersion}
+              if [[ $VERSION == "20.04" ]]
               then
-                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu bionic main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
-
-                # setup software repo for ros
-                sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
-                apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
-                apt update
-
-                if [[ "${DesktopType}" == "Graphical" ]]
-                then
-                  apt install -y lightdm
-                  apt -y upgrade
-                  echo "/usr/sbin/lightdm" > /etc/X11/default-display-manager
-                  dpkg-reconfigure lightdm
-
-                  apt install -y mesa-utils
-                  if [ -x "$(command -v nvidia-xconfig)" ]; then
-                    nvidia-xconfig --preserve-busid --enable-all-gpus
-                  fi
-
-                  #restart X server
-                  echo "restart X-server"
-                  systemctl set-default graphical.target
-                  systemctl isolate graphical.target
-
-                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu1804-x86_64.tgz
-                  tar -xvzf nice-dcv-2020.2-9662-ubuntu1804-x86_64.tgz 
-                  cd nice-dcv-2020.2-9662-ubuntu1804-x86_64
-                  apt install -y  ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu1804.deb
-                fi
-              elif [[ $VERSION == "20.04" ]]
-              then
+                [[ $ROS != 'noetic' ]] && echo "RosVersion must be 'noetic' for Ubuntu $VERSION" && exit 1
                 bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
                 
                 # setup software repo for ros
                 sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
                 apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
-                apt update
+                apt-get update
                 
                 if [[ "${DesktopType}" == "Graphical" ]]
                 then
-                  apt install -y gdm3
-                  apt -y upgrade
+                  apt-get install -y gdm3
+                  apt-get -y upgrade || echo "ignoring upgrade error"
                   echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
                   dpkg-reconfigure gdm3
                   sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
                   systemctl restart gdm3
 
-                  apt install -y mesa-utils
+                  apt-get install -y mesa-utils
                   if [ -x "$(command -v nvidia-xconfig)" ]; then
                     nvidia-xconfig --preserve-busid --enable-all-gpus
                   fi
@@ -2220,22 +2164,23 @@ Resources:
                   wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
                   tar -xvzf nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
                   cd nice-dcv-2020.2-9662-ubuntu2004-x86_64
-                  apt install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+                  apt-get install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
                 fi
 
               elif [[ $VERSION == "22.04" ]]
               then   
+                [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
                 bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu jammy main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
                 
                 add-apt-repository universe
                 curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
                 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
-                apt update
+                apt-get update
 
                 if [[ "${DesktopType}" == "Graphical" ]]
                 then
                   apt-get -y install gdm3
-                  apt-get -y upgrade
+                  apt-get -y upgrade || echo "ignoring upgrade error"
                   echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
                   dpkg-reconfigure gdm3
                   sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
@@ -2258,7 +2203,7 @@ Resources:
                 fi
 
               else
-                echo "Ubuntu $VERSION is not supported; must be one of 18.04, 20.04, or 22.04"
+                echo "Ubuntu $VERSION is not supported; must be one of 20.04, or 22.04"
                 exit 1
               fi
 
@@ -2315,42 +2260,9 @@ Resources:
               fi
 
               # install nfs-common
-              apt install -y nfs-common
+              apt-get install -y nfs-common
 
-              ROS=${RosVersion}
-              PYTHON=''
-              if [[ $VERSION == "18.04" ]]
-              then
-                [[ $ROS != 'melodic' ]] && echo "RosVersion must be 'melodic' for Ubuntu $VERSION" && exit 1
-
-                # melodic requries Python 2.x
-                PYTHON=python
-                
-                apt install -y python-minimal  python-pip
-                pip install --upgrade pip
-                pip install boto3
-                pip install kafka-python
-                pip install psycopg2-binary
-                pip install pyquaternion
-              elif [[ $VERSION == "20.04" ]]
-              then
-                [[ $ROS != 'noetic' ]] && echo "RosVersion must be 'noetic' for Ubuntu $VERSION" && exit 1
-
-                # noetic requries Python 3.x
-                ROS='noetic'
-                PYTHON=python3
-              elif [[ $VERSION == "22.04" ]]
-              then
-                [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
-
-                # humble requries Python 3.x
-                PYTHON=python3
-              else
-                echo "Ubuntu $VERSION is not supported; must be one of 18.04, 20.04, or 22.04"
-                exit 1
-              fi
-
-              apt install -y python3-minimal  python3-pip
+              apt-get install -y python3-minimal  python3-pip
               test -f /usr/bin/python || ln -s `which python3` /usr/bin/python
               pip3 install --upgrade pip
               pip3 install boto3
@@ -2363,9 +2275,9 @@ Resources:
               # install ros
               echo "install ros $ROS ..."
               
-              apt install -y ros-$ROS-desktop-full 
+              apt-get install -y ros-$ROS-desktop-full 
               echo "source /opt/ros/$ROS/setup.bash" >> /home/ubuntu/.bashrc
-              apt install -y $PYTHON-rosdep $PYTHON-rosinstall $PYTHON-rosinstall-generator $PYTHON-wstool build-essential
+              apt-get install -y python3-rosdep python3-rosinstall python3-rosinstall-generator python3-wstool build-essential
 
               if [[ ! -d /etc/ros/rosdep/sources.list.d ]]
               then
@@ -2375,9 +2287,9 @@ Resources:
 
               if [[ $ROS == 'humble' ]]
               then
-                apt install -y python3-colcon-common-extensions
-                apt install -y ros-humble-rosbag2-storage-mcap
-                apt install -y ros-humble-rosbridge-server
+                apt-get install -y python3-colcon-common-extensions
+                apt-get install -y ros-humble-rosbag2-storage-mcap
+                apt-get install -y ros-humble-rosbridge-server
               fi
 
               # Create roscore startup script
@@ -2402,10 +2314,11 @@ Resources:
 
               # install foxglove studio
               wget https://github.com/foxglove/studio/releases/download/v1.30.0/foxglove-studio-1.30.0-linux-amd64.deb \
-                && apt install -y ./foxglove-studio-1.30.0-linux-amd64.deb
+                && apt-get install -y ./foxglove-studio-1.30.0-linux-amd64.deb
 
-              # clone the add-apt-repository
-              cd /home/ubuntu && git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
+              # clone repository
+              [[ ! -d /home/ubuntu/amazon-eks-autonomous-driving-data-service ]] && cd /home/ubuntu && \
+                git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
               export DIR=/home/ubuntu/amazon-eks-autonomous-driving-data-service
               chown -R ubuntu:ubuntu  $DIR
                           
