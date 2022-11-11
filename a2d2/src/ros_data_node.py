@@ -44,6 +44,7 @@ else:
 
 class RosDataNode:
     DATA_REQUEST_TOPIC = "/mozart/data_request"
+    DATA_RESPONSE_TOPIC = "/mozart/data_response"
     DATA_REQUEST_CONTROL_TOPIC = "/mozart/data_request/control"
     PLAY = "play"
     PAUSE = "pause"
@@ -145,6 +146,11 @@ class RosDataNode:
             sensor_data_types = self.request["data_type"]
             sensor_frame_id = self.request.get("frame_id", dict())
 
+            if ROS_VERSION == "1":
+                self.status_publisher = rospy.Publisher(self.DATA_RESPONSE_TOPIC, String, queue_size=64)
+            elif ROS_VERSION == "2":
+                self.status_publisher = self.ros2_node.create_publisher(String, self.DATA_RESPONSE_TOPIC, 64)
+
             for sensor in sensors:
                 manifest = self.manifests[sensor]
                 data_type = sensor_data_types[sensor]
@@ -162,7 +168,7 @@ class RosDataNode:
                 tasks.append(t)
                 t.start()
                 self.logger.info("Started thread:" + t.name)
-
+            
             for t in tasks:
                 self.logger.info("Wait on thread:" + t.name)
                 t.join()
@@ -242,7 +248,7 @@ class RosDataNode:
                 if self.sleep_interval > 0:
                     time.sleep(self.sleep_interval)
 
-            self.logger.info("Flushed{} sensors".format(len(flushed)))
+            self.logger.info("Flushed {} sensors".format(len(flushed)))
 
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -433,7 +439,12 @@ class RosDataNode:
             self.logger.info("processing data request: {0}".format(request))
             self.__handle_request(request)
 
-            self.logger.info("completed data request: {0}".format(request))
+            request['completed'] = True
+            msg = String()
+            msg_str = "{0}".format(request)
+            msg.data = msg_str
+            self.status_publisher.publish(msg)
+            self.logger.info(msg_str)
           
         except Exception as _:
             exc_type, exc_value, exc_traceback = sys.exc_info()
