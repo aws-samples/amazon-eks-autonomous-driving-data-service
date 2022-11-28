@@ -10,17 +10,17 @@ a2d2:
   image:
     uri: '' 
     policy: Always
-  replicaCount: 1
+  replicaCount: 2
   maxReplicaCount: 10
   requests:
     memory: "72Gi"
     cpu: "8000m"
   metric:
-    name: "cpu"
+    name: "memory"
     average: "50"
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 300
+      stabilizationWindowSeconds: 600
     scaleDown:
       stabilizationWindowSeconds: 3600
   config:
@@ -45,12 +45,21 @@ configMap:
         "user": "admin",
         "password": ""
     },
+    "dynamodb": {
+      "data_request_table": ""
+    },
     "data_store": {
         "fsx": {
             "root": "/fsx",
+            "rosbag": "/fsx/rosbag"
         },
         "efs": {
             "root": "/efs",
+            "rosbag": "/efs/rosbag"
+        },
+        "s3": {
+            "rosbag_bucket": "",
+            "rosbag_prefix": "rosbag/"
         },
         "input": "fsx"
     },

@@ -26,24 +26,23 @@ import boto3
 import sys, traceback
 import logging
 import json
-import time
 
 class DatabaseReader:
     def __init__(self, dbconfig=None):
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
             level=logging.INFO)
-        self.logger = logging.getLogger("dbreader")
+        self.__logger = logging.getLogger("dbreader")
 
-        self.dbconfig = dbconfig
+        self.__dbconfig = dbconfig
     
     def connect(self):
         try:
-            dbname = self.dbconfig["dbname"]
-            host = self.dbconfig["host"]
-            port = self.dbconfig["port"]
-            user = self.dbconfig["user"]
-            password = self.dbconfig["password"]
+            dbname = self.__dbconfig["dbname"]
+            host = self.__dbconfig["host"]
+            port = self.__dbconfig["port"]
+            user = self.__dbconfig["user"]
+            password = self.__dbconfig["password"]
 
             secrets_client = boto3.client('secretsmanager')
             response = secrets_client.get_secret_value(SecretId=password)
@@ -52,8 +51,8 @@ class DatabaseReader:
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+            self.__logger.error(str(exc_type))
+            self.__logger.error(str(exc_value))
 
     def query(self, query):
         result = None
@@ -65,8 +64,8 @@ class DatabaseReader:
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+            self.__logger.error(str(exc_type))
+            self.__logger.error(str(exc_value))
 
         return result
 
@@ -77,8 +76,8 @@ class DatabaseReader:
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+            self.__logger.error(str(exc_type))
+            self.__logger.error(str(exc_value))
 
 def main(config, query):
     db = DatabaseReader(dbconfig=config["database"])

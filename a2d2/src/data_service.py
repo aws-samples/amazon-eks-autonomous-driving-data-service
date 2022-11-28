@@ -20,94 +20,98 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import sys, traceback
-import threading, logging
+import logging
 import json
+import time
 
-from kafka import KafkaConsumer
-from data_response import DataResponse
-from util import random_string, validate_data_request
+from common.util import  random_string, validate_data_request
+from ros_data_node import RosDataNode
+from kafka import KafkaConsumer, KafkaProducer
 
+class DataService(RosDataNode):
 
-class DataService(threading.Thread):
-    def __init__(self, config):
-        threading.Thread.__init__(self)
-        self.config = config
-        self.logger = logging.getLogger("data_service")
+    MAX_POLL_INTERVAL_MS = int(24*3600*1000)
+
+    def __init__(self, config=None):
+        super().__init__(config=config)
+        self.__logger = logging.getLogger("data_service")
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
             level=logging.INFO)
-        
-    def run(self):
-        try:
-            topic = self.config["kafka_topic"]
 
-            client_id = random_string()
-            consumer = KafkaConsumer(topic, 
-                        bootstrap_servers=self.config["servers"],
-                        client_id=client_id,
-                        group_id="a2d2-data-service")
-
-            self.logger.info("running data service: {0}:{1}".format(client_id, topic))
-
-            tasks = []
-            max_tasks = int(self.config["max_response_tasks"])
-
-            for message in consumer:
-                try:
-                    json_msg = json.loads(message.value) 
-                    request = json_msg["request"]
-                    self.logger.info("recvd request: {0}".format(request))
-                    validate_data_request(request)
-                    self.logger.info("validated request successfully")
-                    t = DataResponse(dbconfig=self.config['database'], 
-                        servers=self.config["servers"], 
-                        request=request, 
-                        data_store=self.config['data_store'],
-                        calibration=self.config['calibration'])
-
-                    assert(len(tasks) < max_tasks)
-                    tasks.append(t)
-                    self.logger.info("Starting DataResponse task")
-                    t.start()
-
-                    self.logger.info("DataResponse running: {}, max conucrrency {}".format(len(tasks), max_tasks))
-                    while len(tasks) >= max_tasks:
-                        completed_task = None
-                        for task in tasks:
-                            task.join(1.0)
-                            if not task.is_alive():
-                                completed_task = task
-                                break
-                        
-                        if completed_task is not None:
-                            tasks.remove(completed_task)
-
-                except Exception as e:
-                    exc_type, exc_value, exc_traceback = sys.exc_info()
-                    traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-                    self.logger.error(str(e))
+       
+        self.__logger.info(f"Initialization complete {config}")
 
 
+    def __handle_message(self, message=None):
+        try: 
+            json_msg = json.loads(message.value) 
+            request = json_msg["request"]
+            self.__logger.info("recvd request: {0}".format(request))
+            validate_data_request(request)
+            self.__logger.info("validated request successfully")
+            
+            self.__init_request(request)
+            self.__logger.info("processing data request: {0}".format(request))
+
+            accept = request["accept"]
+            if accept.endswith("/rosbag"):
+                self._handle_rosbag_request()
+            elif accept == "manifest":
+                self._handle_manifest_request()
+            else:
+                json_msg = {
+                    "error": f"{accept} accept is not supported",
+                    "__close__": True
+                }
+                self._send_response_msg(json_msg=json_msg)
         except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.logger.error(str(exc_type))
-            self.logger.error(str(exc_value))
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                self.__logger.error(str(exc_type))
+                self.__logger.error(str(exc_value))
 
-def main(config):
-    
-    tasks = [
-        DataService(config),
-    ]
+    def spin(self):
 
-    for t in tasks:
-        t.start()
+       
+        topic = self._config["kafka_topic"]
+        self.__consumer = KafkaConsumer(topic, 
+                    bootstrap_servers=self._config["servers"],
+                    client_id=random_string(),
+                    max_poll_records=1,
+                    max_poll_interval_ms=self.MAX_POLL_INTERVAL_MS,
+                    auto_offset_reset="earliest",
+                    group_id="a2d2-data-service")
+        self.__producer = KafkaProducer(bootstrap_servers=self._config["servers"], client_id=random_string())
+        self.__start_ts = time.time()
 
+        for message in self.__consumer:
+            try:
+                self.__handle_message(message=message)
+            except Exception as e:
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
+                self.__logger.error(str(exc_type))
+                self.__logger.error(str(exc_value))
+
+    def __init_request(self, request):
+        self.__response_topic = request["response_topic"]
+        del request["response_topic"]
+        del request["kafka_topic"]
+
+        self._init_request(request)
+
+    def _send_response_msg(self, json_msg):
+        json_msg['start_ts'] = self.__start_ts
+        self.__producer.send(self.__response_topic, json.dumps(json_msg).encode('utf-8'))
+
+    def _ros2_node(self):
+        raise NotImplementedError("_ros2_node is not implemented")
         
 import argparse
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Kafka data service process')
+    parser = argparse.ArgumentParser(description='Data service')
     parser.add_argument('--config', type=str,  help='configuration file', required=True)
     
     args = parser.parse_args()
@@ -115,4 +119,5 @@ if __name__ == "__main__":
     with open(args.config) as json_file:
         config = json.load(json_file)
 
-    main(config)
+    data_service = DataService(config)
+    data_service.spin()

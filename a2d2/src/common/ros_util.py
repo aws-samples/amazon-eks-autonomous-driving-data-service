@@ -24,10 +24,10 @@ import numpy as np
 import cv2
 import threading
 import os
-import util
+from  common.util import load_json_from_file
+from common.view import transform_from_to
 
 import cv_bridge
-
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from a2d2_msgs.msg import Bus
 from visualization_msgs.msg import  Marker, MarkerArray
@@ -44,8 +44,6 @@ elif ROS_VERSION == "2":
 else:
     raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
-from view import transform_from_to
-
 class RosUtil(object):
     BUS_DATA_TYPE = 'a2d2_msgs/Bus'
     PCL_DATA_TYPE = "sensor_msgs/PointCloud2"
@@ -59,7 +57,7 @@ class RosUtil(object):
     __DATA_LOAD_FNS = {
             PCL_DATA_TYPE: np.load, 
             IMAGE_DATA_TYPE: cv2.imread, 
-            MARKER_ARRAY_CUBE_DATA_TYPE: util.load_json_from_file
+            MARKER_ARRAY_CUBE_DATA_TYPE: load_json_from_file
         }
     __ROS_MSG_FNS = {}
 

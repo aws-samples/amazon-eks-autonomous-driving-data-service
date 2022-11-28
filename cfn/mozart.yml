@@ -619,6 +619,13 @@ Resources:
       ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
       VpcEndpointType: 'Interface'
       VpcId: !Ref Vpc
+  VpcDynamodbEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      VpcId: !Ref Vpc
   VpcSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -1118,6 +1125,14 @@ Resources:
                   - "secretsmanager:GetSecretValue"
                 Resource:
                   - !Ref RedshiftMasterUserPasswordSecret
+        - PolicyName: eks-pod-dynamodb-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:*"
+                Resource:
+                  - !GetAtt DataRequestTable.Arn
 
   EKSNodeGroupPrivate:
     Type: AWS::EKS::Nodegroup
@@ -1827,7 +1842,21 @@ Resources:
           - ContainerPath: "/efs"
             SourceVolume: "efs"
 
-  
+  DataRequestTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_hash
+          AttributeType: S
+        - AttributeName: request_index
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_hash
+          KeyType: HASH
+        - AttributeName: request_index
+          KeyType: RANGE
+
   DesktopRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -2552,6 +2581,14 @@ Resources:
       Type: String
       Value: !GetAtt EksClusterAutoscalerServiceAccountRole.Arn
       Description: EKS cluster autoscaler SA role arn
+
+  DataRequestTableSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/data_request_table"
+      Type: String
+      Value: !Ref DataRequestTable
+      Description: DynamoDB data request table name
 
 Outputs:
   DesktopAMI:

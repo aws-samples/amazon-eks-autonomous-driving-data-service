@@ -32,6 +32,7 @@ aws_region=$(aws configure get region)
 [[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
 [[ -z "${eks_pod_sa_role_arn}" ]] && echo "eks_pod_sa_role_arn variable required" && exit 1
 [[ -z "${eks_node_role_arn}" ]] && echo "eks_node_role_arn variable required" && exit 1
+[[ -z "${data_request_table}" ]] && echo "data_request_table variable required" && exit 1
 [[ -z "${msk_cluster_arn}" ]] && echo "MSK cluster is not defined: WebSocket client only."
 
 DATE=`date +%s`
@@ -40,8 +41,10 @@ sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
     -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
     -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
     -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
+    -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
     -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
     -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
+    -e "s|\"data_request_table\":.*|\"data_request_table\": \"${data_request_table}\"|g" \
     $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
 
 if [[ ! -z "${msk_cluster_arn}" ]]
@@ -60,6 +63,7 @@ sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
     -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
     -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
+    -e "s|\"data_request_table\":.*|\"data_request_table\": \"${data_request_table}\"|g" \
     $DIR/a2d2/charts/a2d2-data-service/values.yaml
 
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \

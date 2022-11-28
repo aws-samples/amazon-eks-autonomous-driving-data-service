@@ -19,19 +19,12 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import logging
-import json
-from db_reader import DatabaseReader
+from common.db_reader import DatabaseReader
 from threading import Thread
 
 
 class ManifestDataset():
     def __init__(self, dbconfig=None, **request):
-        self.logger = logging.getLogger("manifest_dataset")
-        logging.basicConfig(
-            format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
-            level=logging.INFO)
-
         self.dbreader = DatabaseReader(dbconfig)
         self.dbreader.connect()
 
@@ -77,28 +70,3 @@ class ManifestDataset():
             t.start()
         self.start_ts = self.end_ts
         return self.cur_batch
-
-def main(config):
-    m = ManifestDataset(dbconfig=config["database"], 
-		vehicle_id="a2d2",
-		scene_id="20190401121727",
-		sensor_id="lidar/front_left",
-		start_ts=1554115465612291, 
-		stop_ts=1554115466612291,
-                step=1000000)
-
-    print(m.fetch())
-
-        
-import argparse
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Kafka ds_consumer process')
-    parser.add_argument('--config', type=str,  help='configuration file', required=True)
-    
-    args = parser.parse_args()
-
-    with open(args.config) as json_file:
-        config = json.load(json_file)
-
-    main(config)

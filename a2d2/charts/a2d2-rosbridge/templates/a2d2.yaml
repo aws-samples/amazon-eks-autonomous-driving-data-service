@@ -66,7 +66,7 @@ spec:
         command:
         - python
         args:
-        - /mozart/ros_data_node.py
+        - /mozart/rosbridge_service.py
         - --config
         - {{ .Values.a2d2.config.dir }}/{{ .Values.a2d2.config.path }}
         volumeMounts:
