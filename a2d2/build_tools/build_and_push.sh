@@ -12,7 +12,7 @@ distro=
 if [ "$#" -eq 1 ]; then
     distro=$1
 else
-    echo "usage: $0  <noetic-focal, or melodic-bionic>"
+    echo "usage: $0  <noetic-focal, or humble-jammy>"
     exit 1
 fi
   
