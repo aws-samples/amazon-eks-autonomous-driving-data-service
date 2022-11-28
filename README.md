@@ -207,6 +207,10 @@ To *preview* data from a different drive scene, execute:
 
  The data client exits automatically at the end of each successful run. You can use CTRL+C to exit the data client manaually.
 
+ When you are done with the Kafka data service, stop it by executing the command:
+
+		helm delete a2d2-data-service
+
 ### Run Rosbridge data service
 
 To deploy the `a2d2-rosbridge` data service, execute the following command in the *working directory*:
@@ -249,14 +253,9 @@ To *stop* the request, you can publish:
 
 	{ "data": "{ \"command\": \"stop\" }" }
 
-## Hard reset of the data service
+When you are done with the Rosbridge data service, stop it by executing the command:
 
-This step is for reference purposes. If at any time you need to do a hard reset of the data service, you can do so by executing:
-
-		helm delete a2d2-data-service
 		helm delete a2d2-rosbridge
-
-This will delete all data service EKS pods immediately. All in-flight service responses will be aborted. Because the connection between the Kafka data client and Kafka data service is asynchronous, you need to kill the Kafka data client manually. 
 
 ## Deleting the AWS CloudFormation stack
 
