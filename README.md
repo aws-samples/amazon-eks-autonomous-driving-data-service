@@ -167,7 +167,7 @@ The time for this step depends on many variable factors, including the choice of
 
 ### Run Kafka data service
 
-The `a2d2-data-service` uses Kafka and is deployed using an [Helm Chart](https://helm.sh/docs/topics/charts/). it runs as a `kubernetes deployment` in EKS. To start the `a2d2-data-service`, execute the following command in the *working directory*:
+The `a2d2-data-service` uses Kafka and is deployed using an [Helm Chart](https://helm.sh/docs/topics/charts/). To deploy the `a2d2-data-service`, execute the following command in the *working directory*:
 
 		helm install --debug a2d2-data-service ./a2d2/charts/a2d2-data-service/
 
@@ -209,7 +209,7 @@ To *preview* data from a different drive scene, execute:
 
 ### Run Rosbridge data service
 
-To start the `a2d2-rosbridge` data service, execute the following command in the *working directory*:
+To deploy the `a2d2-rosbridge` data service, execute the following command in the *working directory*:
 
 		helm install --debug a2d2-rosbridge ./a2d2/charts/a2d2-rosbridge/
 
