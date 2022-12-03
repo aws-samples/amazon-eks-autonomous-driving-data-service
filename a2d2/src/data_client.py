@@ -49,7 +49,13 @@ else:
 
 class _RosbagConsumer:
 
-    def __init__(self, consumer=None, s3_reader=None, use_time=None, no_playback=None, ros2_node=None):
+    def __init__(self, consumer=None, 
+        s3_reader=None, 
+        use_time=None, 
+        no_playback=None, 
+        ros2_node=None,
+        storage_id=None,
+        storage_preset_profile=None):
     
         self.__logger = logging.getLogger("rosbag_consumer")
         logging.basicConfig(
@@ -67,7 +73,10 @@ class _RosbagConsumer:
         if not self.__no_playback:
             self.__ros_publishers = dict()
 
+        self.__storage_id = storage_id
+        self.__storage_preset_profile = storage_preset_profile
         self.__msg_count = 0
+
 
     def __get_ros_publishers(self, reader):
         topics_types = RosUtil.get_topics_types(reader)
@@ -93,7 +102,8 @@ class _RosbagConsumer:
             reader.close()
         elif ROS_VERSION == "2":
             reader = rosbag2_py.SequentialReader()
-            storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id='mcap', storage_preset_profile='zstd_fast')
+            storage_options = rosbag2_py.StorageOptions(uri=bag_path, 
+                storage_id=self.__storage_id, storage_preset_profile=self.__storage_preset_profile)
             converter_options = rosbag2_py.ConverterOptions(
                 input_serialization_format='cdr',
                 output_serialization_format='cdr')
@@ -325,8 +335,16 @@ class DataClient:
                 no_playback = False
 
             s3_reader = self.__s3_reader if s3 and not no_playback else None
+            if ROS_VERSION == "2":
+                storage_id = request.get('storage_id', 'mcap')
+                storage_preset_profile = request.get("storage_preset_profile", "zstd_fast")
+            else:
+                storage_id = None
+                storage_preset_profile = None
+                
             rosbag_consumer = _RosbagConsumer(consumer=self.__consumer, s3_reader=s3_reader,
-                no_playback=no_playback, use_time=self.__use_time, ros2_node=self.__ros2_node)
+                no_playback=no_playback, use_time=self.__use_time, ros2_node=self.__ros2_node,
+                storage_id=storage_id, storage_preset_profile=storage_preset_profile)
             self.__send_request_msg(request=request)
             rosbag_consumer()
         except Exception as _:
