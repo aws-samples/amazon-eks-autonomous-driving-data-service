@@ -49,10 +49,10 @@ spec:
             path: {{ .Values.a2d2.config.path }}
       - name: fsx
         persistentVolumeClaim:
-           claimName: fsx-a2d2
+           claimName: {{ .Values.persistentVolumeClaim.fsx }}
       - name: efs 
         persistentVolumeClaim:
-           claimName: efs-a2d2
+           claimName: {{ .Values.persistentVolumeClaim.efs }}
       - name: tmp
         emptyDir: {}
       containers:
