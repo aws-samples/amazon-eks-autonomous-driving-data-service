@@ -14,6 +14,8 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  
+[[ ! -z $(helm list | grep a2d2) ]] && echo "Stop running services" && exit 1
+
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIR=$scripts_dir/..
 cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
@@ -98,21 +100,16 @@ echo "Update MSK cluster configuration"
 python3 $scripts_dir/update-kafka-cluster-config.py --config $DIR/a2d2/config/kafka.config
 fi
 
-# Update yaml files for creating EFS and FSx persistent-volume
+# Update yaml files for creating EFS persistent-volume
 sed -i -e "s/volumeHandle: .*/volumeHandle: ${efs_id}/g" \
     $DIR/a2d2/efs/pv-efs-a2d2.yaml
 
-sed -i -e "s/volumeHandle: .*/volumeHandle: ${fsx_id}/g" \
-    -e "s/dnsname: .*/dnsname: ${fsx_id}.fsx.${aws_region}.amazonaws.com/g" \
-    -e "s/mountname: .*/mountname: ${fsx_mount_name}/g"  \
-	$DIR/a2d2/fsx/pv-fsx-a2d2.yaml
+sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
+    -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/efs/stage-data-a2d2.yaml
 
 # Update eks pod sa role in yaml files used for staging data
 sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
     -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/fsx/stage-data-a2d2.yaml
-
-sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
-    -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/efs/stage-data-a2d2.yaml
 
 # create a2d2 namespace if needed
 kubectl get namespace a2d2 || kubectl create namespace a2d2
@@ -122,19 +119,67 @@ echo "Deploy AWS EFS CSI Driver"
 $scripts_dir/deploy-efs-csi-driver.sh
 kubectl apply -f $DIR/a2d2/efs/efs-sc.yaml
 
-# deploy AWS FSx CSI driver
-echo "Deploy AWS FSx CSI Driver"
-$scripts_dir/deploy-fsx-csi-driver.sh
-
 # create EFS persistent volume
 echo "Create k8s persistent-volume and persistent-volume-claim for efs"
 kubectl apply -n a2d2 -f $DIR/a2d2/efs/pv-efs-a2d2.yaml
 kubectl apply -n a2d2 -f $DIR/a2d2/efs/pvc-efs-a2d2.yaml
 
+if [[ ! -z ${fsx_id} ]] && [[ ! -z ${fsx_mount_name} ]]
+then
+
+# deploy AWS FSx CSI driver
+echo "Deploy AWS FSx CSI Driver"
+$scripts_dir/deploy-fsx-csi-driver.sh
+
+sed -i -e "s/volumeHandle: .*/volumeHandle: ${fsx_id}/g" \
+    -e "s/dnsname: .*/dnsname: ${fsx_id}.fsx.${aws_region}.amazonaws.com/g" \
+    -e "s/mountname: .*/mountname: ${fsx_mount_name}/g"  \
+	$DIR/a2d2/fsx/pv-fsx-a2d2.yaml
+
 # create FSx persistent volume
 echo "Create k8s persistent-volume and persistent-volume-claim for fsx"
 kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
 kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pvc-fsx-a2d2.yaml
+
+# uncomment fsx related configuration
+sed -i -e "s/\"input\": *\"s3\"/\"input\": \"fsx\"/" \
+    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
+
+sed -i -e "s/\"input\": *\"s3\"/\"input\": \"fsx\"/" \
+    $DIR/a2d2/charts/a2d2-data-service/values.yaml
+
+sed -i -e '/^#\+[^#]*- *name: \+fsx/ {s/^#\+//;n;s/^#\+//;n;s/^#\+//}' \
+    -e '/^#\+[^#]*- *mountPath: \+\/fsx/ {s/^#\+//;n;s/^#\+//}' \
+    $DIR/a2d2/charts/a2d2-rosbridge/templates/a2d2.yaml
+
+sed -i -e '/^#\+[^#]*- *name: \+fsx/ {s/^#\+//;n;s/^#\+//;n;s/^#\+//}' \
+    -e '/^#\+[^#]*- *mountPath: \+\/fsx/ {s/^#\+//;n;s/^#\+//}' \
+    $DIR/a2d2/charts/a2d2-data-service/templates/a2d2.yaml
+
+else
+
+#delete FSx persistent volume
+echo "Delete k8s persistent-volume and persistent-volume-claim for fsx"
+kubectl delete -n a2d2 -f $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
+kubectl delete -n a2d2 -f $DIR/a2d2/fsx/pvc-fsx-a2d2.yaml
+
+# comment fsx related configuration
+sed -i -e "s/\"input\": *\"fsx\"/\"input\": \"s3\"/" \
+    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
+
+sed -i -e "s/\"input\": *\"fsx\"/\"input\": \"s3\"/" \
+    $DIR/a2d2/charts/a2d2-data-service/values.yaml
+
+sed -i -e '/^[^#]*- *name: \+fsx/ {s/^/#/;n;s/^/#/;n;s/^/#/}' \
+    -e '/^[^#]*- *mountPath: \+\/fsx/ {s/^/#/;n;s/^/#/}' \
+    $DIR/a2d2/charts/a2d2-rosbridge/templates/a2d2.yaml
+
+sed -i -e '/^[^#]*- *name: \+fsx/ {s/^/#/;n;s/^/#/;n;s/^/#/}' \
+    -e '/^[^#]*- *mountPath: \+\/fsx/ {s/^/#/;n;s/^/#/}' \
+    $DIR/a2d2/charts/a2d2-data-service/templates/a2d2.yaml
+
+fi
+
 kubectl get pv -n a2d2
 
 # deploy metrics server

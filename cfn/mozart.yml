@@ -126,6 +126,17 @@ Parameters:
     Default: 3
     MinValue: 3
 
+  FSxForLustre:
+    Description: >-
+      Option to enable, disable FSx for Lustre file system. If enabled, 
+      the FSx for Lustre file system automatically imports data from s3://S3bucket/FSxS3ImportPrefix. 
+      See S3Bucket and FSxS3ImportPrefix parameters.
+    Type: String
+    Default: 'enabled'
+    AllowedValues:
+      - 'enabled'
+      - 'disabled'
+
   FSxStorageCapacityGiB:
     Description: FSx Storage capacity in multiples of 2400 GiB
     Type: Number
@@ -279,6 +290,7 @@ Conditions:
       - ''
   EuCentral1: !Equals [ !Ref AWS::Region, "eu-central-1" ]
   MSKEnabled: !Equals [ !Ref DataClientType, "KafkaAndRosBridge" ]
+  FSxForLustreEnabled: !Equals [ !Ref FSxForLustre, 'enabled' ]
 
 Mappings:
   noetic:
@@ -635,6 +647,7 @@ Resources:
         - Key: Name
           Value: !Ref 'AWS::StackName'
   VpcSecurityGroupIngressFSx1: 
+    Condition: FSxForLustreEnabled
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
       Description: Ingress from within the VPC security group for FSx
@@ -644,6 +657,7 @@ Resources:
       ToPort: 988
       SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
   VpcSecurityGroupCIDRIngressFSx1: 
+    Condition: FSxForLustreEnabled
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
       Description: Ingress from within the VPC security group CIDR for FSx
@@ -653,6 +667,7 @@ Resources:
       FromPort: 988
       ToPort: 988
   VpcSecurityGroupIngressFSx2: 
+    Condition: FSxForLustreEnabled
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
       Description: Ingress from within the VPC security group for FSx
@@ -662,6 +677,7 @@ Resources:
       ToPort: 1023
       SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
   VpcSecurityGroupCIDRIngressFSx2: 
+    Condition: FSxForLustreEnabled
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
       Description: Ingress from within the VPC security group CIDR for FSx
@@ -670,7 +686,7 @@ Resources:
       IpProtocol: tcp
       FromPort: 1021
       ToPort: 1023
-  VpcSecurityGroupIngressEfs: 
+  VpcSecurityGroupIngressEfs:
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
       Description: Ingress from within the VPC security group for Efs
@@ -1204,6 +1220,7 @@ Resources:
                   - '*'
 
   FSxFileSystem:
+    Condition: FSxForLustreEnabled
     Type: AWS::FSx::FileSystem
     DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngressFSx1, VpcSecurityGroupIngressFSx2]
     Properties: 
@@ -1882,14 +1899,7 @@ Resources:
                 Resource: 
                   - !Sub 'arn:aws:cloudformation:::stack/${AWS::StackName}/*'
 
-        - PolicyName: desktop-fsx-policy
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'fsx:DescribeFileSystems'
-                Resource:
-                  - !Sub 'arn:aws:fsx:::file-system/${FSxFileSystem}'
+       
 
         - PolicyName: desktop-kafka-policy
           PolicyDocument:
@@ -2016,9 +2026,20 @@ Resources:
       Roles: 
         - Ref: "DesktopRole"
   
+  DesktopLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateData: 
+        MetadataOptions:
+          HttpTokens: "required"
+          HttpEndpoint: "enabled"
+
   DesktopInstance:
     Type: 'AWS::EC2::Instance'
     Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref DesktopLaunchTemplate
+        Version: !GetAtt DesktopLaunchTemplate.LatestVersionNumber
       ImageId: !If 
         - OverrideAMI
         - !Ref UbuntuAMI
@@ -2049,8 +2070,11 @@ Resources:
           Value: !Sub '${AWS::StackName}-desktop'
 
       UserData:
-        Fn::Base64:
-          !Sub |
+        Fn::Base64: 
+          'Fn::Join':
+          - ''
+          - - !Sub
+              |
               Content-Type: multipart/mixed; boundary="//"
               MIME-Version: 1.0
 
@@ -2071,15 +2095,7 @@ Resources:
               Content-Disposition: attachment; filename="userdata.txt"
 
               #!/bin/bash -xe
-
-              if [[ -f "/home/ubuntu/desktop.init" ]]
-              then
-                /usr/local/bin/mount-efs.sh
-                apt-get install -y lustre-client-modules-$(uname -r) && /usr/local/bin/mount-fsx.sh
-                exit 0
-              fi
-
-              echo "Cloud init in progress. Machine will REBOOT after cloud init is complete!!" > /etc/motd
+              echo "Cloud init in progress!" > /etc/motd
              
               # Find Ubuntu Version 
               VERSION=$(lsb_release -a | grep Release | awk -F ":" '{print $2}' | sed -E -e 's/[[:blank:]]+//g')
@@ -2091,10 +2107,8 @@ Resources:
 
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
               [[ "${DesktopType}" == "Graphical" ]] && \
+              [[ ! -z $(lspci -v | grep NVIDIA) ]] && \
               [[ ! -x "$(command -v nvidia-smi)" ]] && \
-                apt-get update && apt-get -y upgrade && \
-                apt-get -y install ubuntu-drivers-common && \
-                [[ ! -z "$(ubuntu-drivers devices | grep nvidia-driver | grep recommended | awk -F " " '{print $3}')" ]] && \
                 apt-get -y install linux-headers-$(uname -r) && \
                 ( ( [[ $VERSION == "20.04" ]] && \
                     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
@@ -2172,17 +2186,18 @@ Resources:
                 apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 
                 apt-get update
                 
-                if [[ "${DesktopType}" == "Graphical" ]]
+                if [[ "${DesktopType}" == "Graphical" ]] && [[ ! -x "$(command -v dcv)" ]]
                 then
-                  apt-get install -y gdm3
-                  apt-get -y upgrade || echo "ignoring upgrade error"
+                  apt-get -y install gdm3
+                  apt-get -y upgrade
                   echo "/usr/sbin/gdm3" > /etc/X11/default-display-manager
                   dpkg-reconfigure gdm3
                   sed -i -e "s/#WaylandEnable=false/WaylandEnable=false/g" /etc/gdm3/custom.conf
                   systemctl restart gdm3
 
-                  apt-get install -y mesa-utils
-                  if [ -x "$(command -v nvidia-xconfig)" ]; then
+                  apt-get -y install mesa-utils
+                  if [[ -x "$(command -v nvidia-xconfig)" ]] && [[ -x "$(command -v nvidia-smi)" ]]
+                  then
                     nvidia-xconfig --preserve-busid --enable-all-gpus
                   fi
 
@@ -2194,7 +2209,8 @@ Resources:
                   wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
                   tar -xvzf nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
                   cd nice-dcv-2020.2-9662-ubuntu2004-x86_64
-                  apt-get install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+                  apt-get -y install ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+                  reboot
                 fi
 
               elif [[ $VERSION == "22.04" ]]
@@ -2207,7 +2223,7 @@ Resources:
                 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
                 apt-get update
 
-                if [[ "${DesktopType}" == "Graphical" ]]
+                if [[ "${DesktopType}" == "Graphical" ]] && [[ ! -x "$(command -v dcv)" ]]
                 then
                   apt-get -y install gdm3
                   apt-get -y upgrade || echo "ignoring upgrade error"
@@ -2217,7 +2233,8 @@ Resources:
                   systemctl restart gdm3
 
                   apt-get -y install mesa-utils
-                  if [ -x "$(command -v nvidia-xconfig)" ]; then
+                  if [[ -x "$(command -v nvidia-xconfig)" ]] && [[ -x "$(command -v nvidia-smi)" ]]
+                  then
                     nvidia-xconfig --preserve-busid --enable-all-gpus
                   fi
 
@@ -2230,6 +2247,7 @@ Resources:
                   tar -xvzf nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
                   cd nice-dcv-2022.1-13300-ubuntu2204-x86_64
                   apt-get -y install ./nice-dcv-server_2022.1.13300-1_amd64.ubuntu2204.deb/
+                  reboot
                 fi
 
               else
@@ -2242,14 +2260,16 @@ Resources:
                 #restart X server
                 systemctl set-default graphical.target
                 systemctl isolate graphical.target
-
+    
                 # Create DCV server configuration file
-                [[ -d  /opt/dcv-session-store ]] || mkdir  /opt/dcv-session-store
+                [[ -d /opt/dcv-session-store ]] || mkdir /opt/dcv-session-store
                 echo "[license]" >> dcv.conf
                 echo "[log]" >> dcv.conf
                 echo "[session-management]" >> dcv.conf
+                echo "create-session = true" >> dcv.conf
                 echo "[session-management/defaults]" >> dcv.conf
                 echo "[session-management/automatic-console-session]" >> dcv.conf
+                echo "owner=ubuntu" >> dcv.conf
                 echo "storage-root=\"/opt/dcv-session-store/\"" >> dcv.conf
                 echo "[display]" >> dcv.conf
                 echo "[connectivity]" >> dcv.conf
@@ -2260,33 +2280,18 @@ Resources:
                 echo "primary-selection-paste=true" >> dcv.conf
                 mv dcv.conf /etc/dcv/dcv.conf
 
-                # Enable DCV server
-                systemctl enable dcvserver
-
                 # Create DCV session permissions files
                 rm -f /home/ubuntu/dcv.perms
                 echo "[permissions]" >> /home/ubuntu/dcv.perms
                 echo "%owner% allow builtin" >> /home/ubuntu/dcv.perms
 
-                # Create startup session script
-                echo "#!/bin/bash" >> /usr/local/bin/start-dcvsession.sh
-                echo "dcv create-session --type=console --owner ubuntu --storage-root /opt/dcv-session-store/ --permissions-file /home/ubuntu/dcv.perms dcvsession" >> /usr/local/bin/start-dcvsession.sh
-                chmod a+x /usr/local/bin/start-dcvsession.sh
-
-                echo "[Unit]" >> /etc/systemd/system/dcvsession.service
-                echo "Description=DCV session service" >> /etc/systemd/system/dcvsession.service
-                echo "After=dcvserver.service" >> /etc/systemd/system/dcvsession.service
-                echo "" >> /etc/systemd/system/dcvsession.service
-                echo "[Service]" >> /etc/systemd/system/dcvsession.service
-                echo "User=root" >> /etc/systemd/system/dcvsession.service
-                echo "ExecStart=/usr/local/bin/start-dcvsession.sh" >> /etc/systemd/system/dcvsession.service
-                echo "Restart= on-abort" >> /etc/systemd/system/dcvsession.service
-                echo "" >> /etc/systemd/system/dcvsession.service
-                echo "[Install]" >> /etc/systemd/system/dcvsession.service
-                echo "WantedBy=graphical.target" >> /etc/systemd/system/dcvsession.service
-
-                systemctl enable dcvsession
+                # Enable DCV server
+                systemctl enable dcvserver
+                systemctl restart dcvserver
+                  
                 echo "install DCV server complete"
+
+                snap install foxglove-studio
               fi
 
               # install nfs-common
@@ -2342,10 +2347,6 @@ Resources:
               systemctl enable roscore
               echo "install Ros $ROS complete"
 
-              # install foxglove studio
-              wget https://github.com/foxglove/studio/releases/download/v1.30.0/foxglove-studio-1.30.0-linux-amd64.deb \
-                && apt-get install -y ./foxglove-studio-1.30.0-linux-amd64.deb
-
               # clone repository
               [[ ! -d /home/ubuntu/amazon-eks-autonomous-driving-data-service ]] && cd /home/ubuntu && \
                 git clone https://github.com/aws-samples/amazon-eks-autonomous-driving-data-service.git
@@ -2354,17 +2355,6 @@ Resources:
                           
               # update /home/ubuntu/.bashrc
               echo "export cfn_stack_name=${AWS::StackName}" >> /home/ubuntu/.bashrc
-              
-              # Create FSX mount script 
-              cat >/usr/local/bin/mount-fsx.sh <<EOL
-              #!/bin/bash
-
-              # Mount FSx
-              [[ -d /fsx ]] || mkdir /fsx
-              mount -t lustre -o noatime,flock ${FSxFileSystem}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxFileSystem.LustreMountName} /fsx
-              EOL
-
-              chmod u+x /usr/local/bin/mount-fsx.sh
 
               # Create EFS mount script 
               cat >/usr/local/bin/mount-efs.sh <<EOL
@@ -2377,6 +2367,7 @@ Resources:
               EOL
 
               chmod u+x /usr/local/bin/mount-efs.sh
+              /usr/local/bin/mount-efs.sh
 
               # Create config file
               [[ -d /home/ubuntu/.aws ]] || mkdir /home/ubuntu/.aws
@@ -2404,8 +2395,6 @@ Resources:
               /tmp/get_helm.sh
               rm /tmp/get_helm.sh
 
-              touch /home/ubuntu/desktop.init
-
               if [[ "${DesktopType}" == "Graphical" ]]
               then
                 echo "NICE DCV server is enabled!" > /etc/motd
@@ -2413,7 +2402,48 @@ Resources:
                 echo "NICE DCV server is disabled!" > /etc/motd
               fi
 
-              reboot
+            - AWS_REGION=
+            - !Ref AWS::Region
+            - |+
+            
+            - FSX_ENABLED=
+            - !If
+              - FSxForLustreEnabled
+              - "true"
+              - "false"
+            - |+
+
+            - FSX_FS_ID=
+            - !If 
+              - FSxForLustreEnabled 
+              - !Ref FSxFileSystem
+              - ''
+            - |+
+
+            - FSX_MOUNT_NAME=
+            - !If 
+              - FSxForLustreEnabled 
+              - !GetAtt FSxFileSystem.LustreMountName
+              - ''
+            - |+
+
+            - |
+              # Create FSx  mount script
+              cat >/usr/local/bin/mount-fsx.sh <<EOL
+              #!/bin/bash
+
+              echo "FSx for Lustre is enabled: $FSX_ENABLED"
+              # Mount FSX
+              if [[ "$FSX_ENABLED"  == "true" ]]
+              then
+                apt-get -y install lustre-client-modules-$(uname -r)
+                [[ -d /fsx ]] || mkdir /fsx
+                mount -t lustre -o noatime,flock $FSX_FS_ID.fsx.$AWS_REGION.amazonaws.com@tcp:/$FSX_MOUNT_NAME /fsx
+              fi
+              EOL
+              
+              chmod u+x /usr/local/bin/mount-fsx.sh
+              /usr/local/bin/mount-fsx.sh
 
   EfsIdSsm:
     Type: AWS::SSM::Parameter
@@ -2423,6 +2453,7 @@ Resources:
       Value: !Ref EFSFileSystem
       Description: EFS Id
   FsxIdSsm:
+    Condition: FSxForLustreEnabled
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub "/${AWS::StackName}/fsx_id"
@@ -2431,6 +2462,7 @@ Resources:
       Description: FSx Id
 
   FsxMountNameSsm:
+    Condition: FSxForLustreEnabled
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub "/${AWS::StackName}/fsx_mount_name"
@@ -2619,11 +2651,13 @@ Outputs:
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "Vpc" ] ]
   FSxId:
+    Condition: FSxForLustreEnabled
     Description: FSx for Luster file system id
     Value: !Ref FSxFileSystem
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "FSxId" ] ]
   FSxMountName:
+    Condition: FSxForLustreEnabled
     Description: FSx for Luster mount name
     Value: !Sub "${FSxFileSystem.LustreMountName}"
     Export:

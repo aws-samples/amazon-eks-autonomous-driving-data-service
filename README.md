@@ -175,7 +175,7 @@ To verify that the `a2d2-data-service` deployment is running, execute the comman
 
 		kubectl get pods -n a2d2
 
-The data service can be configured to use S3, FSx for Lustre, or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ) as the raw sensor data store. The default raw data store is `fsx`.
+The data service can be configured to use S3, FSx for Lustre, or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ) as the raw sensor data store. The default raw data store is `fsx`, if FSx for Luster is enabled (see [`FSxForLustre`](#InputParams) parameter), else it is `s3`.
 
 Below is the Helm chart configuration for various raw data store options, with recommended Kubernetes resource requests for pod `memory` and `cpu`. This configuration is used in [`a2d2/charts/a2d2-data-service/values.yaml`](a2d2/charts/a2d2-data-service/values.yaml):
 
@@ -326,6 +326,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | EKSNodeGroupDesiredSize | This is a **required** parameter whereby you specify EKS Node group initial desired size. Default value is 2 nodes.|
 | FargateComputeType | This is a **required** parameter whereby you specify Fargate compute environment type. Allowed values are `FARGATE_SPOT` and `FARGATE`. Default value is `FARGATE_SPOT`. |
 | FargateComputeMax | This is a **required** parameter whereby you specify maximum size of Fargate compute environment in vCpus. Default value is `1024`.|
+| FSxForLustre |  This is a **required** parameter whereby you specify whether FSx for Lustre is `enabled`, or `disabled`. Default value is `enabled`.|
 | FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of `2400 GiB`. Default value is `7200 GiB`.|
 | FSxS3ImportPrefix | This is an *optional* advanced parameter whereby you specify FSx S3 bucket path prefix for importing data from S3 bucket. Leave blank to import the complete bucket.|
 | KeyPairName | This is a **required** parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
