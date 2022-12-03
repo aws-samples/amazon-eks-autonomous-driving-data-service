@@ -175,7 +175,7 @@ To verify that the `a2d2-data-service` deployment is running, execute the comman
 
 		kubectl get pods -n a2d2
 
-The data service can be configured to use S3, FSx for Lustre, or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ) as the raw sensor data store. The default raw data store is `fsx`, if FSx for Luster is enabled (see [`FSxForLustre`](#InputParams) parameter), else it is `s3`.
+The data service can be configured to use S3, FSx for Lustre, or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ) as the raw sensor data store. The default raw data store is `fsx`, if FSx for Lustre is enabled (see [`FSxForLustre`](#InputParams) parameter), else it is `s3`.
 
 Below is the Helm chart configuration for various raw data store options, with recommended Kubernetes resource requests for pod `memory` and `cpu`. This configuration is used in [`a2d2/charts/a2d2-data-service/values.yaml`](a2d2/charts/a2d2-data-service/values.yaml):
 
@@ -259,7 +259,7 @@ When you are done with the Rosbridge data service, stop it by executing the comm
 
 ## Deleting the AWS CloudFormation stack
 
-When you no longer need the data service, you may delete the AWS CloudFormation stack from the AWS CloudFormation console. Deleting the CloudFormation stack deletes all the resources in the stack (including FSx for Luster and EFS), *except for the Amazon S3 bucket*.
+When you no longer need the data service, you may delete the AWS CloudFormation stack from the AWS CloudFormation console. Deleting the CloudFormation stack deletes all the resources in the stack (including FSx for Lustre and EFS), *except for the Amazon S3 bucket*.
 
 ## <a name="Reference"></a> Reference
 
