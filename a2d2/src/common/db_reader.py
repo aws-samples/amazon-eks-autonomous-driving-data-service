@@ -20,14 +20,17 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import psycopg2
+import redshift_connector
 import boto3
+import time
 
 import sys, traceback
 import logging
 import json
 
 class DatabaseReader:
+    MAX_ATTEMPTS = 5
+
     def __init__(self, dbconfig=None):
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
@@ -40,14 +43,19 @@ class DatabaseReader:
         try:
             dbname = self.__dbconfig["dbname"]
             host = self.__dbconfig["host"]
-            port = self.__dbconfig["port"]
             user = self.__dbconfig["user"]
             password = self.__dbconfig["password"]
 
             secrets_client = boto3.client('secretsmanager')
             response = secrets_client.get_secret_value(SecretId=password)
-            self.con=psycopg2.connect(dbname=dbname, host=host, port=port, 
-                    user=user, password=response['SecretString'])
+            password = response['SecretString']
+
+            parts = host.split('.')
+            serverless_work_group=parts[0]
+            serverless_acct_id=parts[1]
+
+            self.con=redshift_connector.connect(database=dbname, host=host, user=user, password=password, 
+                is_serverless=True, serverless_acct_id=serverless_acct_id, serverless_work_group=serverless_work_group)
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -56,16 +64,29 @@ class DatabaseReader:
 
     def query(self, query):
         result = None
-        try:
-            cur = self.con.cursor()
-            cur.execute(query)
-            result = cur.fetchall()
+        cur = None
+        attempt = 0
+        while True:
+            try:
+                cur = self.con.cursor()
+                cur.execute(query)
+        
+                result: tuple = cur.fetchall()
+                break
+            except redshift_connector.error.ProgrammingError as e:
+                if "no result set" in str(e):
+                    self.con.commit()
+                    break
+
+                if attempt <= self.MAX_ATTEMPTS:
+                    attempt += 1
+                    self.__logger.warning(f"{e}; retrying: {attempt}")
+                    time.sleep(2**attempt)
+                else:
+                    raise(e)
+
+        if cur:
             cur.close()
-        except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-            self.__logger.error(str(exc_type))
-            self.__logger.error(str(exc_value))
 
         return result
 

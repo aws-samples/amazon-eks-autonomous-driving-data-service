@@ -28,7 +28,6 @@ aws_region=$(aws configure get region)
 [[ -z "${aws_region}" ]] && echo "aws_region env variable is required" && exit 1
 [[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name env variable is required" && exit 1
 [[ -z "${redshift_cluster_host}" ]] && echo "redshift_cluster_host variable required" && exit 1
-[[ -z "${redshift_cluster_port}" ]] && echo "redshift_cluster_port variable required" && exit 1
 [[ -z "${redshift_cluster_username}" ]] && echo "redshift_cluster_username variable required" && exit 1
 [[ -z "${redshift_cluster_dbname}" ]] && echo "redshift_cluster_dbname variable required" && exit 1
 [[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
@@ -40,7 +39,6 @@ aws_region=$(aws configure get region)
 DATE=`date +%s`
 # update helm charts values.yaml for a2d2-rosbridge
 sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
-    -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
     -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
     -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
     -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
@@ -59,7 +57,6 @@ MSK_SERVERS=$(aws kafka --region ${aws_region} get-bootstrap-brokers \
 # update helm charts values.yaml for a2d2-data-service and example client config files
 sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
     -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
-    -e "s/\"port\": .*/\"port\": \"${redshift_cluster_port}\",/g" \
     -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
     -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
     -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \

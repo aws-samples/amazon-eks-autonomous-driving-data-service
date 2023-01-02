@@ -14,42 +14,77 @@ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTIO
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 '''
-import psycopg2
+import redshift_connector
 import sys, traceback
-import threading, logging, time
+import logging
 import json
-import random
-import string
+
 import time
 import boto3
 
-def main(config):
-    logger = logging.getLogger("data_service")
-    logging.basicConfig(
+MAX_ATTEMPTS = 5
+
+logger = logging.getLogger("data_service")
+logging.basicConfig(
         format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
         level=logging.INFO)
 
+def execute(con=None, query=None):
+        cur=None
+        attempt = 0
+        while True:
+            try:
+                cur = con.cursor()
+                cur.execute("begin;")
+                cur.execute(query)
+                cur.execute("commit;")
+                break
+            except redshift_connector.error.ProgrammingError as e:
+                if attempt <= MAX_ATTEMPTS:
+                    attempt += 1
+                    logger.warning(f"{e}; retrying: {attempt}")
+                    time.sleep(2**attempt)
+                else:
+                    raise(e)
+
+        if cur:
+            cur.close()
+
+def main(config):
+    con = None
+
     try:
+        dbname = config["dbname"]
+        host = config["host"]
+        user = config["user"]
+        password = config["password"]
+
         secrets_client = boto3.client('secretsmanager')
-        response = secrets_client.get_secret_value(SecretId=config['password'])
-        conn = psycopg2.connect(dbname=config['dbname'], 
-                        host=config['host'], 
-                        port=config['port'], 
-                        user=config['user'], 
-                        password=response['SecretString'])
-        cur = conn.cursor()
+        response = secrets_client.get_secret_value(SecretId=password)
+        password = response['SecretString']
+
+        parts = host.split('.')
+        serverless_work_group=parts[0]
+        serverless_acct_id=parts[1]
+
+        con=redshift_connector.connect(database=dbname, host=host, 
+            user=user, password=password, 
+            is_serverless=True, serverless_acct_id=serverless_acct_id, 
+            serverless_work_group=serverless_work_group)
 
         for query in config['queries']:
             logger.info(f"Executing {query}")
-
-            cur.execute("begin;")
-            cur.execute(query)
-            cur.execute("commit;")
+            execute(con=con, query=query)
+          
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
-        logger.error(str(e))
-            
+        logger.error(str(exc_type))
+        logger.error(str(exc_value))
+        raise RuntimeError(str(e))
+    finally:
+        if con:
+            con.close()
     
 import argparse
 

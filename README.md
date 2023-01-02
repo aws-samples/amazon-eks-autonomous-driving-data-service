@@ -31,7 +31,7 @@ The data client for Kafka data service is a standlone [Python application](a2d2/
 
 *High-level system architecture for the data service*
 
-The data service runtime uses [Amazon Elastic Kubernetes Service (EKS)](https://aws.amazon.com/eks/).  Raw sensor data store and ROS bag store can be configured to use [Amazon S3](https://aws.amazon.com/s3/), [Amazon FSx for Lustre](https://aws.amazon.com/fsx/), or [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Raw data manifest store uses [Amazon Redshift](https://aws.amazon.com/redshift). The data processing workflow for building and loading the raw data manifest uses [AWS Batch](https://aws.amazon.com/batch/) with [Amazon Fargate](https://aws.amazon.com/fargate/), [AWS Step Functions](https://aws.amazon.com/step-functions/), and [Amazon Glue](https://aws.amazon.com/glue/). [Amazon Managed Streaming for Apache Kafka (MSK)](https://aws.amazon.com/msk/) provides the communication channel for the Kafka data service. 
+The data service runtime uses [Amazon Elastic Kubernetes Service (EKS)](https://aws.amazon.com/eks/).  Raw sensor data store and ROS bag store can be configured to use [Amazon S3](https://aws.amazon.com/s3/), [Amazon FSx for Lustre](https://aws.amazon.com/fsx/), or [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Raw data manifest store uses [Amazon Redshift Serverless](https://aws.amazon.com/redshift/redshift-serverless/). The data processing workflow for building and loading the raw data manifest uses [AWS Batch](https://aws.amazon.com/batch/) with [Amazon Fargate](https://aws.amazon.com/fargate/), [AWS Step Functions](https://aws.amazon.com/step-functions/), and [Amazon Glue](https://aws.amazon.com/glue/). [Amazon Managed Streaming for Apache Kafka (MSK)](https://aws.amazon.com/msk/) provides the communication channel for the Kafka data service. 
 
 While the tutorial below walks-through both the Kafka data service and the Rosbridge service, you may choose to disable the Kafka data service, and only use the Rosbridge service, because the Rosbridge service feature set is a super set of the Kafka data service.
 
@@ -106,7 +106,7 @@ The key resources in the CloudFormation stack are listed below:
 * A ROS desktop EC2 instance (default type `g4dn.xlarge`)
 * An Amazon EKS cluster with 2 [managed node group](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html) nodes (default type `m5n.8xlarge`)
 * An Amazon [MSK](https://aws.amazon.com/msk/) cluster with 3 broker nodes (default type `kafka.m5.large`)
-* An Amazon [Redshift](https://aws.amazon.com/redshift/) cluster with 3 nodes (default type `dc2.large`)
+* Amazon [Redshift Serverless](https://aws.amazon.com/redshift/redshift-serverless/) workgroup and namespace
 * An Amazon [Fsx for Lustre](https://aws.amazon.com/fsx/lustre/) file system (default size 7,200  GiB)
 * An Amazon [EFS](https://aws.amazon.com/efs/) file system
 
@@ -340,12 +340,12 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | PublicSubnet1CIDR | This is a **required** parameter whereby you specify the Public Subnet1 CIDR  in Vpc CIDR. Default value is `172.30.0.0/24`.|
 | PublicSubnet2CIDR | This is a **required** parameter whereby you specify the Public Subnet2 CIDR  in Vpc CIDR. Default value is `172.30.1.0/24`.|
 | PublicSubnet3CIDR | This is a **required** parameter whereby you specify the Public Subnet3 CIDR  in Vpc CIDR. Default value is `172.30.2.0/24`.|
+| RedshiftNamespace | This is a **required** parameter whereby you specify the Redshift Serverless namespace. Default value is `mozart`.|
+| RedshiftWorkgroup | This is a **required** parameter whereby you specify the Redshift Serverless workgroup. Default value is `mozart`.|
+| RedshiftServerlessBaseCapacity | This is a **required** parameter whereby you specify the Redshift Serverless base capacity in DPUs. Default value is `128`.|
 | RedshiftDatabaseName | This is a **required** parameter whereby you specify the name of the Redshift database. Default value is `mozart`.|
 | RedshiftMasterUsername | This is a **required** parameter whereby you specify the name Redshift Master user name. Default value is `admin`.|
 | RedshiftMasterUserPassword | This is a **required** parameter whereby you specify the name Redshift Master user password.|
-| RedshiftNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for Redshift cluster. Default value is `ra3.4xlarge`.|
-| RedshiftNumberOfNodes | This is a **required** parameter whereby you specify the number of compute nodes in the Redshift cluster, which must be >= 2.|
-| RedshiftPortNumber | This is a **required** parameter whereby you specify the port number on which the Redshift cluster accepts incoming connections. Default value is `5439`.|
 | RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are `melodic` on Ubuntu Bionic,  `noetic`  on Ubuntu Focal, and `humble` on Ubuntu Jammy. Default value is `noetic`.|
 | S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
 | UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|

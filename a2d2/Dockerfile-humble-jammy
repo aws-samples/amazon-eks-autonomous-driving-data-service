@@ -16,7 +16,7 @@ RUN pip install --upgrade pip
 RUN pip install awscli
 RUN pip install boto3
 RUN pip install kafka-python
-RUN pip install psycopg2-binary
+RUN pip install redshift_connector
 RUN pip install numpy
 RUN pip install pyquaternion
 

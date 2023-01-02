@@ -4,7 +4,6 @@
 	"database": {
 		"dbname": "<redshift data base name>",
 		"host": "<redshift host>",
-		"port": "5439",
 		"user": "<redshift username>",
 		"password": "<redshift password>"
 	},

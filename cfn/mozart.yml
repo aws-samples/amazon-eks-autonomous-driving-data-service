@@ -77,21 +77,23 @@ Parameters:
     Default: mozart
     AllowedPattern: "([a-z]|[0-9])+"
 
-  RedshiftNumberOfNodes:
-    Description: The number of compute nodes in the Redshift cluster, must be >= 2
+  RedshiftServerlessBaseCapacity:
+    Description: Redshift serverless base capacity in RPUs
     Type: Number
-    Default: 3
-    MinValue: 3
+    Default: 128
+    MinValue: 128
 
-  RedshiftNodeType:
-    Description: The type of node to be provisioned for Redshift cluster
+  RedshiftWorkgroup:
+    Description: Redshift serverless workgroup
     Type: String
-    Default: dc2.large
-    AllowedValues:
-    - dc2.large
-    - ds2.xlarge
-    - ra3.4xlarge
-    - ra3.16xlarge
+    Default: "mozart"
+    AllowedPattern: "([a-z]|[0-9])+"
+
+  RedshiftNamespace:
+    Description: Redshift serverless namespace
+    Type: String
+    Default: "mozart"
+    AllowedPattern: "([a-z]|[0-9])+"
 
   RedshiftMasterUsername:
     Description: The user name that is associated with the master user account for
@@ -105,12 +107,7 @@ Parameters:
     Description: "Resdhift master password: Atleast length 8, lower case, upper case and digits."
     NoEcho: "true"
     Type: String
-
-  RedshiftPortNumber:
-    Description: The port number on which the Redshift cluster accepts incoming connections.
-    Type: Number
-    Default: 5439
-
+    
   MSKBrokerNodeType:
     Description: The type of node to be provisioned for MSK Broker
     Type: String
@@ -793,6 +790,19 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::${S3Bucket}'
                   - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+              - Effect: Allow
+                Action: 
+                  - "athena:GetDatabase"
+                  - "athena:GetTableMetadata"
+                Resource:
+                  - !Sub 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:datacatalog/*'
+              - Effect: Allow
+                Action:
+                  - "athena:GetQueryExecution"
+                  - "athena:GetQueryResults"
+                  - "athena:StartQueryExecution"
+                Resource:
+                  - !Sub 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*'
           PolicyName: 'RedshiftClusterPolicy'
 
   RedshiftMasterUserPasswordSecret:
@@ -802,50 +812,35 @@ Resources:
       SecretString: 
         !Ref RedshiftMasterUserPassword
 
-  RedshiftCluster:
-    Type: AWS::Redshift::Cluster
-    DependsOn: [PrivateSubnet1RouteAssociation, PrivateSubnet2RouteAssociation, PrivateSubnet3RouteAssociation]
-    Properties:
-      ClusterType: 'multi-node'
-      Encrypted: true
-      NumberOfNodes: !Ref RedshiftNumberOfNodes
-      NodeType:
-        Ref: RedshiftNodeType
-      DBName:
-        Ref: RedshiftDatabaseName
-      MasterUsername:
-        Ref: RedshiftMasterUsername
-      MasterUserPassword:
-        Ref: RedshiftMasterUserPassword
-      ClusterParameterGroupName:
-        Ref: RedshiftClusterParameterGroup
-      VpcSecurityGroupIds:
-      - Ref: RedshiftSecurityGroup
-      ClusterSubnetGroupName:
-        Ref: RedshiftClusterSubnetGroup
-      PubliclyAccessible: false
-      Port:
-        Ref: RedshiftPortNumber
+
+  RedshiftServerlessNamespace:
+    Type: AWS::RedshiftServerless::Namespace
+    Properties: 
+      DbName: !Ref RedshiftDatabaseName
+      AdminUsername: !Ref RedshiftMasterUsername
+      AdminUserPassword: !Ref RedshiftMasterUserPassword
+      DefaultIamRoleArn: !GetAtt RedshiftClusterRole.Arn
       IamRoles:
-        - !GetAtt RedshiftClusterRole.Arn
+      - !GetAtt RedshiftClusterRole.Arn
+      NamespaceName: !Ref RedshiftNamespace
 
-  RedshiftClusterParameterGroup:
-    Type: AWS::Redshift::ClusterParameterGroup
-    Properties:
-      Description: Redshift Cluster parameter group
-      ParameterGroupFamily: redshift-1.0
-      Parameters:
-      - ParameterName: enable_user_activity_logging
+  RedshiftServerlessWorkgroup:
+    Type: AWS::RedshiftServerless::Workgroup
+    DependsOn: [PrivateSubnet1RouteAssociation, PrivateSubnet2RouteAssociation, PrivateSubnet3RouteAssociation]
+    Properties: 
+      BaseCapacity: !Ref RedshiftServerlessBaseCapacity
+      NamespaceName: !Ref RedshiftServerlessNamespace
+      PubliclyAccessible: false
+      ConfigParameters:
+      - ParameterKey: enable_user_activity_logging
         ParameterValue: 'true'
-
-  RedshiftClusterSubnetGroup:
-    Type: AWS::Redshift::ClusterSubnetGroup
-    Properties:
-      Description: Redshift Cluster subnet group
-      SubnetIds:
+      SecurityGroupIds: 
+      - !GetAtt RedshiftSecurityGroup.GroupId
+      SubnetIds: 
       - Ref: PrivateSubnet1
       - Ref: PrivateSubnet2
       - Ref: PrivateSubnet3
+      WorkgroupName: !Ref RedshiftWorkgroup
 
   RedshiftSecurityGroup:
     DependsOn: [VpcSecurityGroup]
@@ -863,8 +858,8 @@ Resources:
       Description: Ingress from  VPC security group to RedShift database
       GroupId: !GetAtt RedshiftSecurityGroup.GroupId
       IpProtocol: tcp
-      FromPort: !Ref RedshiftPortNumber
-      ToPort: !Ref RedshiftPortNumber
+      FromPort: 5439
+      ToPort: 5439
       SourceSecurityGroupId: !GetAtt VpcSecurityGroup.GroupId
 
   RedshiftSecurityGroupBatchFargateIngress: 
@@ -873,8 +868,8 @@ Resources:
       Description: Ingress from batch fargate VPC security group to RedShift database
       GroupId: !GetAtt RedshiftSecurityGroup.GroupId
       IpProtocol: tcp
-      FromPort: !Ref RedshiftPortNumber
-      ToPort: !Ref RedshiftPortNumber
+      FromPort: 5439
+      ToPort: 5439
       SourceSecurityGroupId: !GetAtt BatchFargateSecurityGroup.GroupId
 
   RedshiftSecurityGroupCIDRIngress: 
@@ -884,8 +879,8 @@ Resources:
       GroupId: !GetAtt RedshiftSecurityGroup.GroupId
       CidrIp: !Ref VpcCIDR
       IpProtocol: tcp
-      FromPort: !Ref RedshiftPortNumber
-      ToPort: !Ref RedshiftPortNumber
+      FromPort: 5439
+      ToPort: 5439
   
   RedshiftSecurityGroupCIDREgress: 
     Type: 'AWS::EC2::SecurityGroupEgress'
@@ -2302,7 +2297,7 @@ Resources:
               pip3 install --upgrade pip
               pip3 install boto3
               pip3 install kafka-python
-              pip3 install psycopg2-binary
+              pip3 install redshift_connector
               pip3 install --upgrade awscli
               pip3 install jupyterlab
               pip3 install pyquaternion
@@ -2531,16 +2526,8 @@ Resources:
     Properties:
       Name: !Sub "/${AWS::StackName}/redshift_cluster_host"
       Type: String
-      Value: !GetAtt RedshiftCluster.Endpoint.Address
-      Description: Redshift cluster host
-
-  RedshiftClusterPortSsm:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AWS::StackName}/redshift_cluster_port"
-      Type: String
-      Value: !GetAtt RedshiftCluster.Endpoint.Port
-      Description: Redshift cluster port
+      Value: !GetAtt RedshiftServerlessWorkgroup.Workgroup.Endpoint.Address
+      Description: Redshift serverless workgroup endpoint address
     
   RedshiftClusterUsernameSsm:
     Type: AWS::SSM::Parameter

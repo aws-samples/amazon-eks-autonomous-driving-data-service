@@ -34,7 +34,7 @@ pip install --upgrade pip
 pip install awscli
 pip install boto3
 pip install kafka-python
-pip install psycopg2-binary
+pip install redshift_connector
 pip install numpy
 
 # install ros melodic

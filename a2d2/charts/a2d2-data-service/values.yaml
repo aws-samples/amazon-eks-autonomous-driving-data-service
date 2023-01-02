@@ -37,7 +37,6 @@ configMap:
     "database": {
         "dbname": "mozart",
         "host": "",
-        "port": "5439",
         "user": "admin",
         "password": ""
     },

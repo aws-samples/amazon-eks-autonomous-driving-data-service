@@ -26,7 +26,6 @@ cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
 [[ -z "${glue_job_role_arn}" ]] && echo "glue_job_role_arn variable required" && exit 1
 [[ -z "${redshift_cluster_role_arn}" ]] && echo "redshift_cluster_role_arn variable required" && exit 1
 [[ -z "${redshift_cluster_host}" ]] && echo "redshift_cluster_host variable required" && exit 1
-[[ -z "${redshift_cluster_port}" ]] && echo "redshift_cluster_port variable required" && exit 1
 [[ -z "${redshift_cluster_username}" ]] && echo "redshift_cluster_username variable required" && exit 1
 [[ -z "${redshift_cluster_dbname}" ]] && echo "redshift_cluster_dbname variable required" && exit 1
 [[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
@@ -35,7 +34,7 @@ $scripts_dir/pythonfroms3-focal-ecr-image.sh
 
 # create requirements.txt
 cat >$scripts_dir/requirements.txt <<EOL
-psycopg2-binary
+redshift_connector
 pandas
 numpy
 EOL
@@ -85,7 +84,6 @@ aws s3 cp $DIR/a2d2/data/vehicle.csv s3://${s3_bucket_name}/redshift/vehicle.csv
 cat >$DIR/a2d2/config/redshift.config <<EOL
 {
   "host": "${redshift_cluster_host}",
-  "port": "${redshift_cluster_port}",
   "user": "${redshift_cluster_username}",
   "dbname": "${redshift_cluster_dbname}",
   "password": "${redshift_cluster_password}",
