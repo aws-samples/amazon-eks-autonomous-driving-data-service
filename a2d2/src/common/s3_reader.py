@@ -40,10 +40,10 @@ class S3Reader(Process):
         self.__s3_client = get_s3_client()
         self.__cache_dir = cache_dir
 
-    def request_queue(self):
+    def request_queue(self) -> Queue:
         return self.__req
 
-    def response_queue(self):
+    def response_queue(self) -> Queue:
         return self.__resp
 
     def run(self):

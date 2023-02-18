@@ -19,17 +19,19 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from abc import ABC, abstractmethod
+
 import time
+from typing import Any, Callable, Sequence, Union
 import numpy as np
 import cv2
 import threading
 import os
+
 from  common.util import load_json_from_file
-from common.view import transform_from_to
 
 import cv_bridge
 from sensor_msgs.msg import Image, PointCloud2, PointField
-from a2d2_msgs.msg import Bus
 from visualization_msgs.msg import  Marker, MarkerArray
 from geometry_msgs.msg import  Pose
 from  pyquaternion import Quaternion
@@ -44,29 +46,164 @@ elif ROS_VERSION == "2":
 else:
     raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
-class RosUtil(object):
-    BUS_DATA_TYPE = 'a2d2_msgs/Bus'
+class RosUtil(ABC):
     PCL_DATA_TYPE = "sensor_msgs/PointCloud2"
     IMAGE_DATA_TYPE = "sensor_msgs/Image"
     MARKER_ARRAY_CUBE_DATA_TYPE = "visualization_msgs/MarkerArray/Marker/CUBE"
     MARKER_ARRAY_DATA_TYPE = "visualization_msgs/MarkerArray"
     
-    
-    __CATEGORY_COLORS = dict()
-    __NS_MARKER_ID = dict()
+    __CATEGORY_COLORS = dict[str, list[int, int, int]]()
+    __NS_MARKER_ID = dict[str, int]()
     __DATA_LOAD_FNS = {
             PCL_DATA_TYPE: np.load, 
             IMAGE_DATA_TYPE: cv2.imread, 
             MARKER_ARRAY_CUBE_DATA_TYPE: load_json_from_file
-        }
-    __ROS_MSG_FNS = {}
+    }
 
+    __ROS_MSG_FNS = dict()
+
+    @staticmethod
+    def dynamic_import(name):
+        components = name.split('.')
+        mod = __import__(components[0])
+        for comp in components[1:]:
+            mod = getattr(mod, comp)
+        return mod
+
+    def __init__(self, bucket: str = None, key: str = None):
+        """Constructor
+
+        Parameters
+        ----------
+        bucket: str
+            S3 bucket for calibration data
+
+        key: str
+            S3 bucket key for calibration data
+
+        """
+
+        self._cal_bucket = bucket
+        self._cal_key = key
+        
+    
+    @abstractmethod
+    def get_bus_datatype(self) -> str:
+        """Get Ros message datatype for bus data
+
+        Returns
+        -------
+        str
+            Ros message datatype for bus data
+        """
+
+        return NotImplemented
+    
+    @abstractmethod
+    def get_bus_dataclass(self) -> type:
+        """Get Ros message data class for bus data
+
+        Returns
+        -------
+        type
+            Ros message data class for bus data type
+        """
+
+        return NotImplemented
+
+    def bus_msg(self, row: Sequence[Union[str, int, float]]) -> Any:
+        """Get Ros message for a row of bus data
+
+        Parameters
+        ----------
+        row: Sequence[Union[str, int, float]]
+            One row of Ros bus data for a single timestamp
+
+        Returns
+        -------
+        Any
+            Ros message for bus data
+        """
+
+        return NotImplemented
+
+    @abstractmethod
+    def sensor_to_vehicle(self, sensor:str) -> Any:    
+        """Get sensor to vehicle transform matrix 
+
+        Parameters
+        ----------
+        sensor: str
+            Sensor id
+
+        Returns
+        -------
+        Any
+            Numpy array transform matrix of shape [4,4]
+        """
+         
+        return NotImplemented
+
+    @abstractmethod
+    def vehicle_to_sensor(self, sensor:str) -> Any:
+        """Get vehicle to sensor transform matrix 
+
+        Parameters
+        ----------
+        sensor: str
+            Sensor id
+
+        Returns
+        -------
+        Any
+            Numpy array transform matrix of shape [4,4]
+        """
+
+        return NotImplemented
+
+    @abstractmethod
+    def get_undistort_fn(self, sensor: str) -> Callable:
+        """Get function for undistorting  single frame of sensor data. 
+        This method is typically used to get the function for 
+        undistorting single Open CV image obtained from a given sensor. 
+
+        Parameters
+        ----------
+        sensor: str
+            Sensor id
+
+        Returns
+        -------
+        Any
+            Function for undistorting single frame of sensor data
+        """
+
+        return NotImplemented
+        
     @classmethod
     def create_cv_brigde(cls):
+        """Create CV bridge"""
         cls.img_cv_bridge = cv_bridge.CvBridge()
 
+    def get_data_class(self, data_type: str):
+        data_class = None
+        if data_type == self.IMAGE_DATA_TYPE:
+            data_class = Image
+        elif data_type == self.PCL_DATA_TYPE:
+            data_class = PointCloud2
+        elif data_type == self.get_bus_datatype():
+            data_class = self.get_bus_dataclass()
+        elif data_type == self.MARKER_ARRAY_CUBE_DATA_TYPE:
+            data_class = MarkerArray
+        elif data_type == self.MARKER_ARRAY_DATA_TYPE:
+             data_class = MarkerArray
+        else:
+            raise ValueError("Data type not supported:" + str(data_type))
+
+        return data_class
+    
     @classmethod
-    def __category_color(cls, category=None):
+    def __category_color(cls, category:str) -> list[int, int, int]:
         color = cls.__CATEGORY_COLORS.get(category, None)
         if color is None:
             color = list(np.random.choice(range(255),size=3))
@@ -75,7 +212,7 @@ class RosUtil(object):
         return color
 
     @classmethod
-    def __marker_id(cls, ns=None):
+    def __marker_id(cls, ns: str) -> int:
         _id = cls.__NS_MARKER_ID.get(ns, None)
 
         if _id is not None:
@@ -88,7 +225,21 @@ class RosUtil(object):
         return _id
 
     @classmethod
-    def get_topics_types(cls, reader):
+    def get_topics_types(cls, reader: Any) -> dict:
+        """Get Ros topic types for a given serialized message reader,
+        e.g. Ros bag reader.
+
+        Parameters
+        ----------
+        reader: Any
+            Ros message reader
+
+        Returns
+        -------
+        dict
+            Ros topic types
+        """
+         
         topic_types = dict() 
 
         if ROS_VERSION == "1":
@@ -103,37 +254,42 @@ class RosUtil(object):
 
         return topic_types
 
-    @classmethod
-    def get_data_class(cls, data_type):
-        data_class = None
-        if data_type == cls.IMAGE_DATA_TYPE:
-            data_class = Image
-        elif data_type == cls.PCL_DATA_TYPE:
-            data_class = PointCloud2
-        elif data_type == cls.BUS_DATA_TYPE:
-            data_class = Bus
-        elif data_type == cls.MARKER_ARRAY_CUBE_DATA_TYPE:
-            data_class = MarkerArray
-        elif data_type == cls.MARKER_ARRAY_DATA_TYPE:
-             data_class = MarkerArray
-        else:
-            raise ValueError("Data type not supported:" + str(data_type))
-
-        return data_class
 
     @classmethod
-    def __is_marker_array(cls, ros_msg):
+    def __is_marker_array(cls, ros_msg: Any) -> bool:
         return "MarkerArray" in str(type(ros_msg))
 
     @classmethod
-    def get_ros_msg_ts_nsecs(cls, ros_msg):
+    def get_ros_msg_ts_nsecs(cls, ros_msg: Any) -> float:
+        """Get Ros message header timestamp in nanoseconds
+
+        Parameters
+        ----------
+        ros_msg: Any
+            Ros message
+
+        Returns
+        -------
+        float
+            Ros message time stamp in header in nanoseconds
+        """
+
         if ROS_VERSION == "1":
             return ros_msg.header.stamp.secs * 1000000 + int(ros_msg.header.stamp.nsecs/1000)
         elif ROS_VERSION == "2":
             return ros_msg.header.stamp.sec * 1000000 + int(ros_msg.header.stamp.nanosec/1000)
         
     @classmethod
-    def set_ros_msg_received_time(cls, ros_msg):
+    def set_ros_msg_received_time(cls, ros_msg: Any):
+        """Set current time in Ros message header
+
+        Parameters
+        ----------
+        ros_msg: Any
+            Ros message
+    
+        """
+
         _ts = time.time()*1000000
         _stamp = divmod(_ts, 1000000 ) #stamp in micro secs
       
@@ -157,7 +313,20 @@ class RosUtil(object):
                 ros_msg.header.stamp.nanosec = int(_stamp[1]*1000) # nano secs
 
     @classmethod
-    def set_ros_msg_header(cls, ros_msg=None, ts=None, frame_id=None):
+    def set_ros_msg_header(cls, ros_msg: Any, ts: float, frame_id: str):
+        """Set Ros message header
+
+        Parameters
+        ----------
+        ros_msg: Any
+            Ros message
+        ts: float
+            Message header time stamp
+        frame_id: str
+            Ros message frame id
+    
+        """
+
         _stamp = divmod(ts, 1000000 ) #stamp in micro secs
 
         if ROS_VERSION == "1":
@@ -184,53 +353,7 @@ class RosUtil(object):
                 ros_msg.header.stamp.nanosec = int(_stamp[1]*1000) # nano secs
 
     @classmethod
-    def bus_msg(cls, row=None):
-        msg = Bus()
-
-        # linear accel
-        msg.vehicle_kinematics.acceleration.x = row[3]
-        msg.vehicle_kinematics.acceleration.y = row[4]
-        msg.vehicle_kinematics.acceleration.z = row[5]
-
-        # accelerator control
-        msg.control.accelerator_pedal = row[6]
-        msg.control.accelerator_pedal_gradient_sign = row[7]
-
-        # angular velocity
-        msg.vehicle_kinematics.angular_velocity.omega_x = row[8]
-        msg.vehicle_kinematics.angular_velocity.omega_y = row[9]
-        msg.vehicle_kinematics.angular_velocity.omega_z = row[10]
-
-        # brake pressure
-        msg.control.brake_pressure = row[11]
-
-        # distance pulse
-        msg.distance_pulse.front_left = row[12]
-        msg.distance_pulse.front_right = row[13]
-        msg.distance_pulse.rear_left = row[14]
-        msg.distance_pulse.rear_right = row[15]
-
-        # geo location
-        msg.geo_loction.latitude = row[16]
-        msg.geo_loction.latitude_direction = row[17]
-        msg.geo_loction.longitude = row[18]
-        msg.geo_loction.longitude_direction = row[19]
-
-        # angular orientation
-        msg.vehicle_kinematics.angular_orientation.pitch_angle = row[20]
-        msg.vehicle_kinematics.angular_orientation.roll_angle = row[21]
-
-        # steering 
-        msg.control.steeering_angle_calculated = row[22]
-        msg.control.steering_angle_calculated_sign = row[23]
-
-        # vehicle speed
-        msg.vehicle_kinematics.vehicle_speed = row[24]
-
-        return msg
-
-    @classmethod
-    def __point_field(cls, name, offset, datatype=PointField.FLOAT32, count=1):
+    def __point_field(cls, name:str, offset:int, datatype=PointField.FLOAT32, count=1):
         pf = None
         if ROS_VERSION == "1":
             pf = PointField(name, offset, datatype, count)
@@ -244,7 +367,7 @@ class RosUtil(object):
         return pf
 
     @classmethod
-    def get_pcl_fields(cls):
+    def __get_pcl_fields(cls):
         return [
             cls.__point_field('x', 0),
             cls.__point_field('y', 4),
@@ -255,8 +378,28 @@ class RosUtil(object):
         ]
 
     @classmethod
-    def pcl_sparse_msg(cls, points=None, reflectance=None, rows=None, cols=None, transform=None):
-  
+    def pcl_sparse_msg(cls, points:Any, reflectance:Any, rows:Any, cols:Any, transform:Any) -> PointCloud2:
+        """Get Ros sparse point cloud message
+
+        Parameters
+        ----------
+        points: Any
+            Numpy array of points shape [N, 3]
+        reflectance: Any
+            Numpy array of reflectance values shape [N,]
+        rows: Any
+            Numpy array point cloud rows shape [N,]
+        cols: Any
+            Numpy array point cloud cols shape [N,]
+        transform: Any
+            Numpy array transform matrix shape [4, 4]
+
+        Returns
+        -------
+        PointCloud2
+            Ros sparse point cloud message
+        """
+
         if transform is not None:
             points_trans = cls.transform_points_frame(points=points, transform=transform)
             points = points_trans[:,0:3]
@@ -282,7 +425,7 @@ class RosUtil(object):
         msg.width = width
         msg.height = height
         
-        msg.fields = cls.get_pcl_fields()
+        msg.fields = cls.__get_pcl_fields()
 
         msg.is_bigendian = False
         msg.point_step = 24
@@ -294,8 +437,24 @@ class RosUtil(object):
         return msg
 
     @classmethod
-    def pcl_dense_msg(cls, points=None, reflectance=None, transform=None):
-  
+    def pcl_dense_msg(cls, points:Any, reflectance:Any, transform:Any) -> PointCloud2:
+        """Get Ros dense point cloud message
+
+        Parameters
+        ----------
+        points: Any
+            Numpy array of points shape [N, 3]
+        reflectance: Any
+            Numpy array of reflectance values shape [N,]
+        transform: Any
+            Numpy array transform matrix shape [4, 4]
+
+        Returns
+        -------
+        PointCloud2
+            Ros dense point cloud message
+        """
+
         if transform is not None:
             points_trans = cls.transform_points_frame(points=points, transform=transform)
             points = points_trans[:,0:3]
@@ -308,7 +467,7 @@ class RosUtil(object):
         msg.width = points.shape[0]
         msg.height = 1
         
-        msg.fields = cls.get_pcl_fields()
+        msg.fields = cls.__get_pcl_fields()
 
         msg.is_bigendian = False
         msg.point_step = 24
@@ -320,7 +479,7 @@ class RosUtil(object):
         return msg
 
     @classmethod
-    def __make_color(cls, rgb, a=1):
+    def __make_color(cls, rgb:list[int, int, int], a=1) -> ColorRGBA:
         c = ColorRGBA()
         c.r = rgb[0]
         c.g = rgb[1]
@@ -328,8 +487,9 @@ class RosUtil(object):
         c.a = a
         
         return c
+    
     @classmethod
-    def marker_cube_msg(cls, boxes=None, ns=None, lifetime=None, transform=None):
+    def marker_cube_msg(cls, boxes:Any, ns:Any, lifetime:Any, transform:Any) -> Any:
         marker_array_msg = MarkerArray()
         keys = boxes.keys()
         for key in keys:
@@ -371,8 +531,22 @@ class RosUtil(object):
         return marker_array_msg
 
     @classmethod
-    def get_pose(cls, position=None, orientation=None):
+    def get_pose(cls, position:Any, orientation:Any) -> Pose:
+        """Get Ros Pose for given position and orientation
 
+        Parameters
+        ----------
+        position: Any
+            Numpy array of position shape [3]
+        orientation: Any
+            Numpy array of orientation shape [4]
+        
+        Returns
+        -------
+        Pose
+            Ros Pose
+        """
+         
         p = Pose()
         p.position.x = position[0]
         p.position.y = position[1]
@@ -386,19 +560,22 @@ class RosUtil(object):
         return p
 
     @classmethod
-    def undistort_image(cls, cvim, lens=None, dist_parms=None, intr_mat_dist=None, intr_mat_undist=None):
-            
-        if (lens == 'Fisheye'):
-            return cv2.fisheye.undistortImage(cvim, intr_mat_dist,
-                                        D=dist_parms, Knew=intr_mat_undist)
-        elif (lens == 'Telecam'):
-            return cv2.undistort(cvim, intr_mat_dist, 
-                        distCoeffs=dist_parms, newCameraMatrix=intr_mat_undist)
-        else:
-            return cvim
+    def transform_points_frame(cls, points: Any, transform: Any) -> Any:
+        """Transform points' reference frame using transform matrix
 
-    @classmethod
-    def transform_points_frame(cls, points=None, transform=None):
+        Parameters
+        ----------
+        points: Any
+            Numpy array of points to transform shape [N, 3]
+        transform: Any
+            Numpy transform matrix shape [4, 4]
+        
+        Returns
+        -------
+        Any
+            Transformed homegeneous points Numpy array shape [N, 4]
+        """
+
         points_hom = np.ones((points.shape[0], 4))
         points_hom[:, 0:3] = points
         points_trans = (np.matmul(transform, points_hom.T)).T 
@@ -406,14 +583,29 @@ class RosUtil(object):
         return points_trans
 
     @classmethod
-    def image_msg(cls, cvim=None, transform=None):
+    def image_msg(cls, cvim:Any, transform:Any) -> Image:
+        """Convert Open CV image to Ros Image message
+
+        Parameters
+        ----------
+        cvim: Any
+            Open CV image array
+        transform: Any
+            Transform matrix
+        
+        Returns
+        -------
+        Image
+            Ros Image message
+        """
+        
         if transform is not None:
             cvim = transform(cvim)
         
         return cls.img_cv_bridge.cv2_to_imgmsg(cvim)
 
     @classmethod
-    def __load_data_from_file(cls, data_store=None, id=None, path=None, data=None, load_fn=None):
+    def __load_data_from_file(cls, data_store:dict, id:Any, path:str, data:dict, load_fn: Callable):
         ''' load data from file'''
 
         fs = data_store['input']
@@ -423,8 +615,35 @@ class RosUtil(object):
         data[id] = load_fn(path)
 
     @classmethod
-    def load_data_from_fs(cls, data_type=None, data_store=None, 
-        data_files=None, data_loader=None, data=None, ts=None):
+    def load_data_from_fs(cls, 
+                          data_type:str , 
+                          data_store:dict, 
+                          data_files:Sequence, 
+                          data_loader: dict, 
+                          data: dict, 
+                          ts: dict) -> int:
+        """Load data from file-system using multiple threads
+
+        Parameters
+        ----------
+        data_type: str
+            Ros message data type
+        data_store: dict
+            Data store configuration
+        data_files: Sequence
+            Sequence of files to be loaded
+        data_loader: dict
+            This is used to return the data loader threads. This is cleared before use.
+        data: dict
+            This is used to return the loaded data. This is cleared before use.
+        ts: dict
+            This is used to return the loaded data timestamps. This is cleared before use.
+
+        Returns
+        -------
+        int
+            Number of data loader threads
+        """
 
         data_loader.clear() 
         data.clear()
@@ -445,35 +664,8 @@ class RosUtil(object):
 
         return idx
 
-    @classmethod
-    def get_camera_info(cls, cal_json=None, sensor=None):
-        cam_name = sensor.rsplit("/", 1)[1]
-        # get parameters from calibration json 
-       
-        intr_mat_undist = np.asarray(cal_json['cameras'][cam_name]['CamMatrix'])
-        intr_mat_dist = np.asarray(cal_json['cameras'][cam_name]['CamMatrixOriginal'])
-        dist_parms = np.asarray(cal_json['cameras'][cam_name]['Distortion'])
-        lens = cal_json['cameras'][cam_name]['Lens']
-
-        return lens, dist_parms, intr_mat_dist, intr_mat_undist
-
-    @classmethod
-    def get_undistort_fn(cls, cal_json=None, sensor=None):
-        lens, dist_parms, intr_mat_dist, intr_mat_undist = cls.get_camera_info(cal_json=cal_json, sensor=sensor)
-
-        def undistort_fn(cvim):
-            return RosUtil.undistort_image(cvim, lens=lens, dist_parms=dist_parms, 
-                    intr_mat_dist=intr_mat_dist, intr_mat_undist=intr_mat_undist) 
-        
-        return undistort_fn
-
-    @classmethod
-    def sensor_to_vehicle(cls, cal_json=None, sensor=None):
-        cam_name = sensor.rsplit("/", 1)[1]
-        return transform_from_to(cal_json['cameras'][cam_name]['view'], cal_json['vehicle']['view'])
-
     @classmethod 
-    def __get_marker_lifetime(cls, request):
+    def __get_marker_lifetime(cls, request: Any) -> Any:
         try:
             marker_lifetime = request.get("marker_lifetime", None)
             if marker_lifetime is not None:
@@ -486,8 +678,64 @@ class RosUtil(object):
 
         return None
 
+    @classmethod 
+    def get_data_load_fn(cls, data_type):
+        return cls.__DATA_LOAD_FNS.get(data_type, None)
+    
     @classmethod
-    def get_ros_msg_fn_params(cls, data_type=None, data=None, sensor=None, request=None, transform=None):
+    def get_ros_msg_fn(cls, data_type: str) -> Callable:
+        """Get Ros message function for converting given datatype to a Ros message.
+        See also get_ros_msg_fn_params. This is not applicable to bus data.
+        See also bus_msg.
+
+        Parameters
+        ----------
+        data_type: str
+            Ros message data type
+
+        Returns
+        -------
+        Callable
+            Ros message function to be invoked with parameters returned by get_ros_msg_fn_params
+        """
+        
+        if len(cls.__ROS_MSG_FNS) == 0:
+            cls.__ROS_MSG_FNS[cls.IMAGE_DATA_TYPE] = cls.image_msg
+            cls.__ROS_MSG_FNS[cls.PCL_DATA_TYPE] = cls.pcl_dense_msg
+            cls.__ROS_MSG_FNS[cls.MARKER_ARRAY_CUBE_DATA_TYPE] = cls.marker_cube_msg
+
+        return cls.__ROS_MSG_FNS.get(data_type, None)
+   
+    @classmethod
+    def get_ros_msg_fn_params(cls, 
+                              data_type: str, 
+                              data: Any, 
+                              sensor: str, 
+                              request: Any, 
+                              transform: Any) -> dict:
+        """Get Ros message function parameters for a given datatype. 
+        The returned parameters are used to invoke the Ros message function 
+        returned by get_ros_msg_fn.
+
+        Parameters
+        ----------
+        data_type: str
+            Ros message data type
+        data: Any
+            Arbitrary data
+        sensor: str
+            Sensor id
+        request: Any
+            Data request object
+        transform: Any
+            Transform matrix
+
+        Returns
+        -------
+        dict
+            Ros message function parameters
+        """
+
         params = None
 
         if data_type == cls.IMAGE_DATA_TYPE:
@@ -511,22 +759,24 @@ class RosUtil(object):
         params['transform'] = transform
         return params
 
-    @classmethod 
-    def get_ros_msg_fn(cls, data_type):
-        if len(cls.__ROS_MSG_FNS) == 0:
-            cls.__ROS_MSG_FNS[cls.IMAGE_DATA_TYPE] = cls.image_msg
-            cls.__ROS_MSG_FNS[cls.PCL_DATA_TYPE] = cls.pcl_dense_msg
-            cls.__ROS_MSG_FNS[cls.MARKER_ARRAY_CUBE_DATA_TYPE] = cls.marker_cube_msg
-            cls.__ROS_MSG_FNS[cls.BUS_DATA_TYPE] = cls.bus_msg
-            
-        return cls.__ROS_MSG_FNS.get(data_type, None)
-       
-    @classmethod 
-    def get_data_load_fn(cls, data_type):
-        return cls.__DATA_LOAD_FNS.get(data_type, None)
-
+    
     @classmethod
-    def drain_ros_msgs(cls, ros_msg_list=None, drain_ts=None):
+    def drain_ros_msgs(cls, ros_msg_list: list, drain_ts: float) -> list:
+        """Drains input Ros message list and returns Ros messages upto drain timestamp
+
+        Parameters
+        ----------
+        ros_msg_list: list
+            Input list of Ros msgs of any type
+        drain_ts: float
+            Drain messages upto this timestamp from input list
+
+        Returns
+        -------
+        list
+            List of drained Ros messages
+        """
+
         ros_msgs = []
 
         while ros_msg_list:

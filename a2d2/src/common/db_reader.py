@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+from typing import Any
 
 import redshift_connector
 import boto3
@@ -31,7 +32,7 @@ import json
 class DatabaseReader:
     MAX_ATTEMPTS = 5
 
-    def __init__(self, dbconfig=None):
+    def __init__(self, dbconfig: dict):
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
             level=logging.INFO)
@@ -62,7 +63,7 @@ class DatabaseReader:
             self.__logger.error(str(exc_type))
             self.__logger.error(str(exc_value))
 
-    def query(self, query):
+    def query(self, query:str) -> Any:
         result = None
         cur = None
         attempt = 0

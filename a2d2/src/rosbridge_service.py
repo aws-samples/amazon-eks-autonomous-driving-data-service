@@ -22,6 +22,7 @@ from __future__ import unicode_literals
 import sys, traceback
 import logging
 import json
+from typing import Any
 
 from common.util import  validate_data_request, random_string
 from common.ros_util import ROS_VERSION
@@ -43,7 +44,7 @@ class RosBridgeService(RosDataNode):
     DATA_RESPONSE_TOPIC = "/mozart/data_response"
     DATA_REQUEST_CONTROL_TOPIC = "/mozart/data_request/control"
 
-    def __init__(self, config=None):
+    def __init__(self, config: dict):
         super().__init__(config=config)
         self.__logger = logging.getLogger("rosbridge_service")
         logging.basicConfig(
@@ -84,13 +85,13 @@ class RosBridgeService(RosDataNode):
     def _ros2_node(self):
         return self.__node
 
-    def _send_response_msg(self, json_msg):
+    def _send_response_msg(self, json_msg: dict):
         msg = String()
         msg.data = json.dumps(json_msg)
         self.__response_publisher.publish(msg)
 
 
-    def __data_request_cb(self, ros_msg):
+    def __data_request_cb(self, ros_msg: Any):
         try:  
             self.__logger.info(f"received ros message: {ros_msg.data}")
             
@@ -120,7 +121,7 @@ class RosBridgeService(RosDataNode):
             self.__logger.error(str(exc_type))
             self.__logger.error(str(exc_value))
 
-    def __data_request_control_cb(self, ros_msg):
+    def __data_request_control_cb(self, ros_msg: Any):
         try:  
             self.__logger.info(f"received ros message: {ros_msg.data}")
             

@@ -1,6 +1,7 @@
 {
 	"delay": 0,
-	"servers": "",
+	"servers": "<kafka broker servers>",
+	"rosutil_classname": "a2d2_ros_util.A2d2RosUtil",
 	"requests": [{
 		"kafka_topic": "a2d2", 
 		"vehicle_id": "a2d2",

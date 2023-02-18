@@ -26,6 +26,9 @@ import os
 import stat
 import errno
 import time
+from typing import Any, Union
+from threading import Thread
+from logging import Logger
 
 import boto3
 from boto3.dynamodb.conditions import Attr
@@ -37,7 +40,8 @@ from kafka import  KafkaProducer, KafkaAdminClient
 
 MAX_ATTEMPTS = 5
 
-def get_s3_client():
+def get_s3_client() -> Any:
+    """Returns Boto3 S3 client"""
 
     s3_client = None
     try:
@@ -57,20 +61,33 @@ def get_s3_client():
     assert(s3_client != None)
     return s3_client
 
-def random_string(length=64):
+def random_string(length: int = 64) -> str:
+    """Returns a random string of given length with lower and upper case alphanumeric chraracters
+    
+    Parameters
+    ----------
+    length: int
+        Length of random string
+
+    Returns
+    -------
+    str
+        Random string of given length
+    """
+
     s = ''
     sel = string.ascii_lowercase + string.ascii_uppercase + string.digits
     for _ in range(0, length):
         s += random.choice(sel)
     return s
 
-def is_close_msg(json_msg):
+def is_close_msg(json_msg: dict) -> bool:
     return json_msg.get('__close__', False)
 
-def is_cancel_msg(json_msg):
+def is_cancel_msg(json_msg: dict) -> bool:
     return json_msg.get('__cancel__', False)
 
-def mkdir_p(path):
+def mkdir_p(path: str):
     try:
         os.makedirs(path)
         os.chmod(path, stat.S_IROTH|stat.S_IWOTH|stat.S_IXOTH|stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR|stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP)
@@ -78,7 +95,7 @@ def mkdir_p(path):
         if e.errno != errno.EEXIST or not os.path.isdir(path):
             raise
 
-def validate_data_request(request, rosbridge=False):
+def validate_data_request(request: dict, rosbridge: bool = False):
         
     assert rosbridge or request.get("kafka_topic")
 
@@ -110,10 +127,33 @@ def validate_data_request(request, rosbridge=False):
             assert data_types.get(s)
             assert ros_topics.get(s)
 
-def create_manifest(request=None, dbconfig=None, sensor_id=None):
+def create_manifest(request: dict, 
+                    dbconfig: dict, 
+                    sensor_id: str, 
+                    schema: str) -> Union[BusDataset, ManifestDataset]:
+
+    """Creates a manifest for reading data from Amazon Redshift database
+    
+    Parameters
+    ----------
+    request: dict
+        Data request
+    dbconfig: dict
+        Redshift database configuration
+    sensor_id: str
+        Sesnor id
+    schema: str
+        Redshift database schema 
+
+    Returns
+    -------
+    Union[BusDataset, ManifestDataset]
+        BusDataset if sensor is bus, else ManifestDataset 
+    """
 
     if sensor_id == 'bus':
-        manifest = BusDataset(dbconfig=dbconfig, 
+        manifest = BusDataset(dbconfig=dbconfig,
+                        schema=schema, 
                         vehicle_id=request["vehicle_id"],
                         scene_id=request["scene_id"],
                         start_ts=int(request["start_ts"]), 
@@ -121,6 +161,7 @@ def create_manifest(request=None, dbconfig=None, sensor_id=None):
                         step=int(request["step"]))
     else:
         manifest = ManifestDataset(dbconfig=dbconfig, 
+                        schema=schema,
                         vehicle_id=request["vehicle_id"],
                         scene_id=request["scene_id"],
                         sensor_id=sensor_id,
@@ -130,25 +171,41 @@ def create_manifest(request=None, dbconfig=None, sensor_id=None):
 
     return manifest
 
-def load_json_from_file(path):
+def load_json_from_file(path: str) -> dict:
     with open(path, "r") as json_file:
         json = json.load(json_file)
         json_file.close()
         return json
 
-def delete_kafka_topics(bootstrap_servers=None, kafka_topics=None):
+def delete_kafka_topics(bootstrap_servers: str, kafka_topics: list):
     admin = KafkaAdminClient(bootstrap_servers=bootstrap_servers)
     admin.delete_topics(kafka_topics)
     admin.close()
 
-def send_kafka_msg(bootstrap_servers=None, kafka_topic=None, kafka_msg=None):
+def send_kafka_msg(bootstrap_servers: str, kafka_topic: str, kafka_msg: Any):
     producer = KafkaProducer(bootstrap_servers=bootstrap_servers, client_id=random_string())
     producer.send(kafka_topic, json.dumps(kafka_msg).encode('utf-8'))
     producer.flush()
     producer.close()
 
-def s3_bucket_keys(s3_client, bucket_name, bucket_prefix):
-    """Generator for listing S3 bucket keys matching prefix"""
+def s3_bucket_keys(s3_client: Any, bucket_name: str, bucket_prefix: str):
+    """Python generator for bucket keys
+
+    Parameters
+    ----------
+    s3_client: Any
+        Boto3 S3 client
+    bucket_name: str
+        S3 bucket name
+    bucket_prefix: str
+        S3 bucket prefix
+    
+    Yields
+    -------
+    key: str
+        Yields bucket keys
+
+    """
 
     kwargs = {'Bucket': bucket_name, 'Prefix': bucket_prefix}
     while True:
@@ -165,7 +222,7 @@ def s3_bucket_keys(s3_client, bucket_name, bucket_prefix):
         except KeyError:
             break
 
-def retry(attempt=None):
+def __retry(attempt: int) -> int:
     if attempt <= MAX_ATTEMPTS:
         attempt += 1
 
@@ -173,8 +230,23 @@ def retry(attempt=None):
     time.sleep(interval)
     return attempt
 
-def download_s3_directory(s3_client=None, bucket=None, bucket_prefix=None, local_path=None, logger=None):
-    
+def download_s3_directory(s3_client: Any, bucket: str, bucket_prefix: str, local_path: str, logger: Logger = None):
+    """Download S3 directory recursively
+
+    Parameters
+    ----------
+    s3_client: Any
+        Boto3 S3 client
+    bucket: str
+        S3 bucket name
+    bucket_path: str
+        S3 bucket path to upload file
+    local_path: str
+        Local path for downloaded directory
+    logger; Logger
+        Logger for logging error messages
+    """
+
     attempt = 0
     prefix_len = len(bucket_prefix) + 1
     while True:
@@ -186,27 +258,55 @@ def download_s3_directory(s3_client=None, bucket=None, bucket_prefix=None, local
                 s3_client.download_file(bucket, key, local_file_path) 
             break
         except Exception:
-            attempt = retry(attempt=attempt)
+            attempt = __retry(attempt=attempt)
             if logger:
                 exc_type, exc_value, _ = sys.exc_info()
                 logger.warning(str(exc_type))
                 logger.warning(str(exc_value))
 
-def download_s3_file(s3_client=None, bucket=None, key=None, local_path=None, logger=None):
-    
+def download_s3_file(s3_client: Any, bucket: str, key: str, local_path: str, logger: Logger = None):
+    """Download S3 file with automatic retry for failures
+
+    Parameters
+    ----------
+    s3_client: Any
+        Boto3 S3 client
+    bucket: str
+        S3 bucket name
+    bucket_path: str
+        S3 bucket path to upload file
+    local_path: str
+        Local path for downloaded file
+    logger; Logger
+        Logger for logging
+    """
+
     attempt = 0
     while True:
         try:
             s3_client.download_file(bucket, key, local_path)
             break
         except Exception:
-            attempt = retry(attempt=attempt)
+            attempt = __retry(attempt=attempt)
             if logger:
                 exc_type, exc_value, _ = sys.exc_info()
                 logger.warning(str(exc_type))
                 logger.warning(str(exc_value))
 
-def delete_s3(s3_client=None, bucket=None, bucket_path=None, logger=None):
+def delete_s3(s3_client: Any, bucket: str, bucket_path: str, logger: Logger = None):
+    """Delete S3 object
+
+    Parameters
+    ----------
+    s3_client: Any
+        Boto3 S3 client
+    bucket: str
+        S3 bucket name
+    bucket_path: str
+        S3 bucket path to upload file
+    logger; Logger
+        Logger for logging
+    """
 
     attempt = 0
     while True:
@@ -215,14 +315,29 @@ def delete_s3(s3_client=None, bucket=None, bucket_path=None, logger=None):
                 s3_client.delete_object(Bucket=bucket, Key=key)
             break
         except Exception:
-            attempt = retry(attempt=attempt)
+            attempt = __retry(attempt=attempt)
             if logger:
                 exc_type, exc_value, _ = sys.exc_info()
                 logger.warning(str(exc_type))
                 logger.warning(str(exc_value))
 
-def upload_s3(s3_client=None, local_path=None, bucket=None, bucket_path=None, logger=None):
+def upload_s3(s3_client: Any, local_path: str, bucket: str, bucket_path: str, logger: Logger = None):
+    """Upload local file to S3 bucket
 
+    Parameters
+    ----------
+    s3_client: Any
+        Boto3 S3 client
+    local_path: str
+        Local path of file
+    bucket: str
+        S3 bucket name
+    bucket_path: str
+        S3 bucket path to upload file
+    logger; Logger
+        Logger for logging
+    """
+    
     attempt = 0
     while True:
         try:
@@ -236,13 +351,31 @@ def upload_s3(s3_client=None, local_path=None, bucket=None, bucket_path=None, lo
                 s3_client.upload_file(local_path, bucket, bucket_path)
             break
         except Exception:
-            attempt = retry(attempt=attempt)
+            attempt = __retry(attempt=attempt)
             if logger:
                 exc_type, exc_value, _ = sys.exc_info()
                 logger.warning(str(exc_type))
                 logger.warning(str(exc_value))
 
-def get_data_requests( data_request_table=None, request_hash=None, ros_version=None):
+def get_data_requests( data_request_table: Any, request_hash: Any, ros_version: Any):
+    """A Python generator for yielding data requests cached in an Amazon Dynamodb table
+
+    Parameters
+    ----------
+    data_request_table: Any
+        Amazon Dynamodb table boto3 resource
+    
+    request_hash: Any
+        Data request hash
+
+    ros_version: Any
+        Ros version
+    
+    Yields
+    -------
+    Yields cached data requests 
+    """
+
     response = None
     exclusive_start_key = None
     filter_expression = Attr('request_hash').eq(request_hash) & Attr('ros_version').eq(ros_version)
@@ -263,3 +396,6 @@ def get_data_requests( data_request_table=None, request_hash=None, ros_version=N
 
         exclusive_start_key = response.get('LastEvaluatedKey', None)
         yield response.get('Items')
+
+    
+

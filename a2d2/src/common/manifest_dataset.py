@@ -18,55 +18,72 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+from typing import Any
 
 from common.db_reader import DatabaseReader
 from threading import Thread
+import logging
+from common.thread_utils import join_thread_timeout_retry
 
 
 class ManifestDataset():
-    def __init__(self, dbconfig=None, **request):
-        self.dbreader = DatabaseReader(dbconfig)
-        self.dbreader.connect()
+    FETCH_TIMEOUT = 120
+    FETCH_RETRY = 3
 
-        self.cur_batch = None
-        self.next_batch = None
-        self.pre_fetch_thread = None
+    def __init__(self, dbconfig: dict, schema: str, **request):
+        self.__logger = logging.getLogger("ManifestDataset")
+        logging.basicConfig(
+            format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
+            level=logging.INFO)
+        
+        self.__dbreader = DatabaseReader(dbconfig)
+        self.__dbreader.connect()
 
-        self.vehicle_id = request['vehicle_id']
-        self.scene_id = request['scene_id']
-        self.start_ts = int(request['start_ts'])
-        self.stop_ts = int(request['stop_ts'])
-        self.sensor_id = request['sensor_id']
-        self.step = int(request['step'])
+        self.__schema = schema
+        self.__cur_batch = None
+        self.__next_batch = None
+        self.__pre_fetch_thread = None
+
+        self.__vehicle_id = request['vehicle_id']
+        self.__scene_id = request['scene_id']
+        self.__start_ts = int(request['start_ts'])
+        self.__stop_ts = int(request['stop_ts'])
+        self.__sensor_id = request['sensor_id']
+        self.__step = int(request['step'])
 
         self.fetch()
-        self.pre_fetch_thread.join()
+        join_thread_timeout_retry(name="pre_fetch_thread", 
+                                  t=self.__pre_fetch_thread, timeout=self.FETCH_TIMEOUT, 
+                                  max_retry=self.FETCH_RETRY, logger=self.__logger)
 
-    def is_open(self):
-        return (self.start_ts < self.stop_ts) or self.pre_fetch_thread or self.next_batch
+
+    def is_open(self) -> bool:
+        return (self.__start_ts < self.__stop_ts) or self.__pre_fetch_thread or self.__next_batch
         
-    def read(self, query=None):
-        self.next_batch=self.dbreader.query(query)
+    def read(self, query: str):
+        self.__next_batch=self.__dbreader.query(query)
 
-    def fetch(self):
-        if self.pre_fetch_thread:
-            self.pre_fetch_thread.join()
+    def fetch(self) -> Any:
+        if self.__pre_fetch_thread:
+            join_thread_timeout_retry(name="pre_fetch_thread", 
+                                  t=self.__pre_fetch_thread, timeout=self.FETCH_TIMEOUT, 
+                                  max_retry=self.FETCH_RETRY, logger=self.__logger)
 
-        self.end_ts = self.start_ts + self.step
-        if self.end_ts > self.stop_ts:
-            self.end_ts = self.stop_ts
+        self.end_ts = self.__start_ts + self.__step
+        if self.end_ts > self.__stop_ts:
+            self.end_ts = self.__stop_ts
 
-        self.pre_fetch_thread = None
-        self.cur_batch=self.next_batch
-        self.next_batch=None
+        self.__pre_fetch_thread = None
+        self.__cur_batch=self.__next_batch
+        self.__next_batch=None
 
-        if self.start_ts < self.stop_ts:
-            query = '''select s3_bucket, s3_key, data_ts from a2d2.drive_data where vehicle_id = 
-                '{0}' and scene_id = '{1}' AND sensor_id = '{2}' AND data_ts >= {3}
-                AND data_ts < {4} order by data_ts;'''.format(self.vehicle_id,
-                    self.scene_id, self.sensor_id, self.start_ts, self.end_ts)
+        if self.__start_ts < self.__stop_ts:
+            query = '''select s3_bucket, s3_key, data_ts from {0}.drive_data where vehicle_id = 
+                '{1}' and scene_id = '{2}' AND sensor_id = '{3}' AND data_ts >= {4}
+                AND data_ts < {5} order by data_ts;'''.format(self.__schema, self.__vehicle_id,
+                    self.__scene_id, self.__sensor_id, self.__start_ts, self.end_ts)
             t=Thread(target=self.read, kwargs={"query": query})
-            self.pre_fetch_thread = t
+            self.__pre_fetch_thread = t
             t.start()
-        self.start_ts = self.end_ts
-        return self.cur_batch
+        self.__start_ts = self.end_ts
+        return self.__cur_batch

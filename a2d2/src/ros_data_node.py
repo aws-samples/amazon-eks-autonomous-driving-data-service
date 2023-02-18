@@ -27,13 +27,17 @@ import os, time
 import threading
 import glob
 from hashlib import sha224
+from typing import Any, Callable, Union
 import boto3
 import signal
 import shutil
 import logging
+from common.bus_dataset import BusDataset
+from common.manifest_dataset import ManifestDataset
 
-from common.util import  random_string, get_s3_client, get_data_requests
-from common.util import  create_manifest, download_s3_file, s3_bucket_keys, mkdir_p
+from common.util import  get_s3_client, get_data_requests
+from common.util import  create_manifest, s3_bucket_keys, mkdir_p
+from common.thread_utils import join_thread_timeout_retry
 from common.s3_reader import S3Reader
 from common.s3_writer import S3Writer
 from common.ros_util import RosUtil, ROS_VERSION
@@ -53,8 +57,10 @@ class RosDataNode(ABC):
     STOP = "stop"
     MAX_RATE = "max_rate"
     LOG_HEARBEAT_INTERVAL_SEC = 300
+    LOAD_DATA_TIMEOUT = 15
+    MAX_LOAD_DATA_RETRY = 4
 
-    def __init__(self, config=None):
+    def __init__(self, config: dict):
         self.__logger = logging.getLogger("ros_data_node")
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
@@ -63,11 +69,20 @@ class RosDataNode(ABC):
         self._config = config
         calibration=config['calibration']
         cal_bucket = calibration["cal_bucket"]
-        
+        cal_key = calibration["cal_key"]
+
         self._s3_cache_dir = f"/efs/.cache/s3/{cal_bucket}"
         mkdir_p(self._s3_cache_dir)
         self._s3_client = get_s3_client()
-        self.__get_calibration_json(calibration=calibration)
+        dataset = config["dataset"]
+        self.__schema = dataset["schema_name"]
+        self.__logger.info(f"Using schema: {self.__schema}")
+
+        rosutil_classname = dataset["rosutil_classname"]
+        self.__logger.info(f"Importing RosUtil class: {rosutil_classname}")
+        RosUtilClass = RosUtil.dynamic_import(rosutil_classname)
+        self.__logger.info(f"Creating RosUtil object for {rosutil_classname}")
+        self.__ros_util = RosUtilClass(bucket=cal_bucket, key=cal_key)
 
         dynamodb = config['dynamodb']
         dynamodb_resource = boto3.resource('dynamodb')
@@ -95,7 +110,7 @@ class RosDataNode(ABC):
         pass
 
     @abstractmethod
-    def _send_response_msg(self, json_msg):
+    def _send_response_msg(self, json_msg: dict):
         pass
 
     @abstractmethod
@@ -103,31 +118,31 @@ class RosDataNode(ABC):
         pass
 
     @property
-    def _s3_config(self):
+    def _s3_config(self) -> dict:
         return self._data_store["s3"]
 
     @property
-    def _fsx_config(self):
+    def _fsx_config(self) -> dict:
         return self._data_store["fsx"]
 
     @property
-    def _efs_config(self):
+    def _efs_config(self) -> dict:
         return self._data_store["efs"]
 
     @property
-    def _rosbag_bucket(self):
+    def _rosbag_bucket(self) -> str:
         return self._s3_config["rosbag_bucket"]
 
     @property
-    def _rosbag_prefix(self):
+    def _rosbag_prefix(self) -> str:
         return self._s3_config["rosbag_prefix"]
 
     @property
-    def _data_store(self):
+    def _data_store(self) -> dict:
         return self._config["data_store"]
 
     @property
-    def _dbconfig(self):
+    def _dbconfig(self) -> dict:
         return self._config["database"]
 
     def _exit_gracefully(self, signum, frame):
@@ -138,10 +153,10 @@ class RosDataNode(ABC):
         self.__close_s3_readers()
         sys.exit()
 
-    def _set_request_state(self, state):
+    def _set_request_state(self, state: str):
         self.__request_state = state
 
-    def _set_max_rate(self, max_rate):
+    def _set_max_rate(self, max_rate: float):
         if max_rate > 0:
             self.__sleep_interval = (len(self.__sensor_list)/max_rate)
         else:
@@ -149,7 +164,7 @@ class RosDataNode(ABC):
 
         self.__logger.info("interleaving sleep_interval:" + str(self.__sleep_interval))
 
-    def _init_request(self, request):
+    def _init_request(self, request: dict):
 
         self.__logger.info(f"Initializing request: {request}")
         self.__request_index = str(int(time.time()*10**6))
@@ -173,15 +188,15 @@ class RosDataNode(ABC):
         for sensor in sensors:
             data_type = self._request["data_type"][sensor]
             self.__sensor_data_type[sensor] = data_type
-            self.__manifests[sensor] = create_manifest(request=request, dbconfig=self._dbconfig, sensor_id=sensor)
+            self.__manifests[sensor] = create_manifest(request=request, dbconfig=self._dbconfig, sensor_id=sensor, schema=self.__schema)
             self.__sensor_dict[sensor] = []
             self.__sensor_list.append(sensor)
             self.__sensor_active[sensor] = True
 
             if lidar_view == "vehicle" and ( data_type == RosUtil.PCL_DATA_TYPE or data_type == RosUtil.MARKER_ARRAY_CUBE_DATA_TYPE) :
-                self.__sensor_transform[sensor] = RosUtil.sensor_to_vehicle(cal_json=self.cal_json, sensor=sensor)
+                self.__sensor_transform[sensor] = self.__ros_util.sensor_to_vehicle(sensor=sensor)
             elif  image_request == "undistorted" and data_type == RosUtil.IMAGE_DATA_TYPE:
-                self.__sensor_transform[sensor] = RosUtil.get_undistort_fn(cal_json=self.cal_json, sensor=sensor)
+                self.__sensor_transform[sensor] = self.__ros_util.get_undistort_fn(sensor=sensor)
 
         self._set_max_rate(self._request.get(self.MAX_RATE, 0))
 
@@ -297,7 +312,7 @@ class RosDataNode(ABC):
                 ros_topic = sensor_topics[sensor]
                 frame_id = sensor_frame_id.get(sensor, "map")
 
-                ros_data_class = RosUtil.get_data_class(data_type)
+                ros_data_class = self.__ros_util.get_data_class(data_type)
                 if ROS_VERSION == "1":
                     self.__ros_publishers[sensor] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
                 elif ROS_VERSION == "2":
@@ -463,7 +478,7 @@ class RosDataNode(ABC):
             raise
 
     def __is_bus_sensor(self, sensor=None):
-        return self._request["data_type"][sensor] == RosUtil.BUS_DATA_TYPE
+        return self._request["data_type"][sensor] == self.__ros_util.get_bus_datatype()
 
     def __get_s3_reader(self, sensor):
         s3_reader = self.__s3_readers.get(sensor)
@@ -517,26 +532,6 @@ class RosDataNode(ABC):
             time.sleep(1)
 
         return self.__request_state == self.PLAY
-
-    def __get_calibration_json(self, calibration=None):
-        cal_bucket = calibration["cal_bucket"]
-        cal_key = calibration["cal_key"]
-        local_path = os.path.join(self._s3_cache_dir, cal_key)
-        if not os.path.exists(local_path):
-            dir_path = os.path.dirname(local_path)
-            if not os.path.exists(dir_path):
-                mkdir_p(dir_path)
-            tmp_path = os.path.join(dir_path, random_string())
-            download_s3_file(s3_client=self._s3_client, 
-                bucket=cal_bucket, key=cal_key, local_path=tmp_path, logger=self.__logger)
-            os.rename(tmp_path, local_path)
-
-        self.cal_json = None
-        with open(local_path, "r") as cal_file:
-            self.cal_json = json.load(cal_file)
-            cal_file.close()
-        
-        assert self.cal_json is not None
 
     def __start_s3_writer(self):
         self.__logger.info("Starting S3 writer")
@@ -668,7 +663,7 @@ class RosDataNode(ABC):
             self.__bag_path = None
             self.__bag_name = None
 
-    def __write_ros_msg_to_bag(self, sensor=None, msg=None):
+    def __write_ros_msg_to_bag(self, sensor: str, msg: Any):
 
         if not self.__bag:
             self.__open_bag()
@@ -690,7 +685,7 @@ class RosDataNode(ABC):
             if self.msg_count % self.chunk_count == 0:
                 self.__close_bag()
 
-    def __record_sensor_data(self, sensor=None, ts=None, frame_id=None, ros_msg_fn=None, params=None):
+    def __record_sensor_data(self, sensor: str, ts: float, frame_id: str, ros_msg_fn: Callable, params: dict):
         try:
             ros_msg = ros_msg_fn(**params)
             RosUtil.set_ros_msg_header( ros_msg=ros_msg, ts=ts, frame_id=frame_id)
@@ -716,7 +711,7 @@ class RosDataNode(ABC):
             if self.__bag_lock:
                 self.__bag_lock.release()
 
-    def __record_sensor_from_fs(self, manifest=None,  sensor=None, frame_id=None):
+    def __record_sensor_from_fs(self, manifest: ManifestDataset,  sensor: str, frame_id: str):
         data_loader = dict()
         data = dict() 
         ts = dict()
@@ -742,7 +737,11 @@ class RosDataNode(ABC):
                 data_store=self._data_store, data_files=files, data_loader=data_loader, data=data, ts=ts)
         
             for i in range(0, count):
-                data_loader[i].join()
+                join_thread_timeout_retry(name=files[i], 
+                                          t=data_loader[i], 
+                                          timeout=self.LOAD_DATA_TIMEOUT, 
+                                          max_retry=self.MAX_LOAD_DATA_RETRY, 
+                                          logger=self.__logger)
                 try:
                     params = RosUtil.get_ros_msg_fn_params(data_type=data_type, data=data[i], 
                         sensor=sensor, request=self._request, transform=transform)
@@ -758,7 +757,7 @@ class RosDataNode(ABC):
 
         self.__sensor_active[sensor] = False
 
-    def __record_sensor_from_s3(self, manifest=None, sensor=None, frame_id=None):
+    def __record_sensor_from_s3(self, manifest: ManifestDataset, sensor: str, frame_id: str):
 
         s3_reader = self.__get_s3_reader(sensor)
         req = s3_reader.request_queue()
@@ -766,7 +765,7 @@ class RosDataNode(ABC):
 
         data_type = self.__sensor_data_type[sensor]
         ros_msg_fn = RosUtil.get_ros_msg_fn(data_type=data_type)
-        data_load_fn = RosUtil.get_data_load_fn(data_type=data_type)
+        data_load_fn = self.__ros_util.get_data_load_fn(data_type=data_type)
         transform = self.__sensor_transform.get(sensor, None)
 
         prev = time.time()
@@ -808,8 +807,8 @@ class RosDataNode(ABC):
 
         self.__sensor_active[sensor] = False
 
-    def __record_bus(self, manifest=None, sensor=None, frame_id=None):
-        ros_msg_fn=RosUtil.get_ros_msg_fn(RosUtil.BUS_DATA_TYPE)
+    def __record_bus(self, manifest: BusDataset, sensor: str, frame_id: str):
+        ros_msg_fn=self.__ros_util.bus_msg
         while True:
             rows = None
             while not rows and manifest.is_open():
@@ -833,10 +832,10 @@ class RosDataNode(ABC):
         
         self.__sensor_active[sensor] = False
 
-    def __record_sensor(self, manifest=None, sensor=None, frame_id=None):
+    def __record_sensor(self, manifest: Union[BusDataset, ManifestDataset], sensor: str, frame_id: str):
         try:
             data_type = self._request["data_type"][sensor]
-            if data_type ==  RosUtil.BUS_DATA_TYPE:
+            if data_type ==  self.__ros_util.get_bus_datatype():
                 self.__record_bus(manifest=manifest, sensor=sensor, frame_id=frame_id)
             else:
                 if self._data_store['input'] != 's3':
@@ -850,7 +849,7 @@ class RosDataNode(ABC):
             self.__logger.error(str(exc_value))
 
 
-    def __publish_ros_msg(self, ros_msg=None, sensor=None):
+    def __publish_ros_msg(self, ros_msg: Any, sensor: str):
 
         self.__ros_publishers[sensor].publish(ros_msg)
         if not self.__is_bus_sensor(sensor):
@@ -860,11 +859,11 @@ class RosDataNode(ABC):
 
             self.__round_robin.append(sensor)
 
-    def __publish_sensor_data(self, sensor=None, 
-                        ts=None, 
-                        frame_id=None, 
-                        ros_msg_fn=None, 
-                        params=None):
+    def __publish_sensor_data(self, sensor: str, 
+                        ts: float, 
+                        frame_id: str, 
+                        ros_msg_fn: Callable, 
+                        params: dict):
         try:
             ros_msg = ros_msg_fn(**params)
             RosUtil.set_ros_msg_header( ros_msg=ros_msg, ts=ts, frame_id=frame_id)
@@ -883,7 +882,7 @@ class RosDataNode(ABC):
             self.__logger.error(str(exc_value))
             raise
 
-    def __publish_sensor_from_fs(self, manifest=None, sensor=None, frame_id=None):
+    def __publish_sensor_from_fs(self, manifest: ManifestDataset, sensor: str, frame_id: str):
 
         data_loader = dict()
         data = dict() 
@@ -910,7 +909,11 @@ class RosDataNode(ABC):
                 data_files=files, data_loader=data_loader, data=data, ts=ts)
         
             for i in range(0, count):
-                data_loader[i].join()
+                join_thread_timeout_retry(name=files[i], 
+                                          t=data_loader[i], 
+                                          timeout=self.LOAD_DATA_TIMEOUT, 
+                                          max_retry=self.MAX_LOAD_DATA_RETRY, 
+                                          logger=self.__logger)
                 try:
                     params = RosUtil.get_ros_msg_fn_params(data_type=data_type, data=data[i], 
                         sensor=sensor, request=self._request, transform=transform)
@@ -929,7 +932,7 @@ class RosDataNode(ABC):
 
         self.__sensor_active[sensor] = False
 
-    def __publish_sensor_from_s3(self, manifest=None, sensor=None, frame_id=None):
+    def __publish_sensor_from_s3(self, manifest: ManifestDataset, sensor: str, frame_id: str):
 
         s3_reader = self.__get_s3_reader(sensor)
         req = s3_reader.request_queue()
@@ -981,7 +984,7 @@ class RosDataNode(ABC):
         
         self.__sensor_active[sensor] = False
 
-    def __publish_bus(self, manifest=None, sensor=None,  frame_id=None):
+    def __publish_bus(self, manifest: BusDataset, sensor: str,  frame_id: str):
 
         while self.__guard():
             rows = None
@@ -994,7 +997,7 @@ class RosDataNode(ABC):
                 try:
                     params = {"row": row}
                     self.__publish_sensor_data(sensor=sensor, ts=row[2], frame_id=frame_id, 
-                        ros_msg_fn=RosUtil.bus_msg, params=params)
+                        ros_msg_fn=self.__ros_util.bus_msg, params=params)
                 except BaseException as _:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=20, file=sys.stdout)
@@ -1006,10 +1009,10 @@ class RosDataNode(ABC):
         
         self.__sensor_active[sensor] = False
 
-    def __publish_sensor(self, manifest=None, sensor=None, frame_id=None):
+    def __publish_sensor(self, manifest: Union[BusDataset, ManifestDataset], sensor: str, frame_id: str):
         try:
             data_type = self._request["data_type"][sensor]
-            if data_type ==  RosUtil.BUS_DATA_TYPE:
+            if data_type ==  self.__ros_util.get_bus_datatype():
                 self.__publish_bus(manifest=manifest, sensor=sensor, frame_id=frame_id)
             else:
                 if self._data_store['input'] != 's3':
@@ -1022,7 +1025,7 @@ class RosDataNode(ABC):
             self.__logger.error(str(exc_type))
             self.__logger.error(str(exc_value))
 
-    def __publish_manifest(self, manifest=None):
+    def __publish_manifest(self, manifest: Union[BusDataset, ManifestDataset]):
         try:
             while True:
                 content = manifest.fetch()

@@ -21,6 +21,7 @@ from __future__ import unicode_literals
 
 import sys, traceback
 import logging
+from typing import Any, Union
 from common.util import  validate_data_request, mkdir_p
 import json
 import time
@@ -33,29 +34,30 @@ import signal
 from kafka import KafkaConsumer, KafkaProducer
 from common.util import  random_string, delete_kafka_topics, is_close_msg
 from common.ros_util import RosUtil, ROS_VERSION
+from common.s3_reader import S3Reader
+from common.s3_directory_reader  import S3DirectoryReader
 
 if ROS_VERSION == "1":
     import rosbag
     import rospy
-    from common.s3_reader import S3Reader
 elif ROS_VERSION == "2":
     import rclpy
     import rosbag2_py
     from rclpy.serialization import deserialize_message
     from rosidl_runtime_py.utilities import get_message
-    from common.s3_directory_reader  import S3DirectoryReader
 else:
     raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
 class _RosbagConsumer:
 
-    def __init__(self, consumer=None, 
-        s3_reader=None, 
-        use_time=None, 
-        no_playback=None, 
-        ros2_node=None,
-        storage_id=None,
-        storage_preset_profile=None):
+    def __init__(self, consumer: KafkaConsumer, 
+        s3_reader: Union[ S3Reader, S3DirectoryReader], 
+        use_time: str, 
+        no_playback: bool, 
+        ros2_node: Any,
+        storage_id: str,
+        storage_preset_profile: str,
+        rosutil_classname: str):
     
         self.__logger = logging.getLogger("rosbag_consumer")
         logging.basicConfig(
@@ -77,12 +79,19 @@ class _RosbagConsumer:
         self.__storage_preset_profile = storage_preset_profile
         self.__msg_count = 0
 
+        self.__logger.info(f"Importing RosUtil class: {rosutil_classname}")
+        RosUtilClass = RosUtil.dynamic_import(rosutil_classname)
+        self.__logger.info(f"Creating RosUtil object for {rosutil_classname}")
+        self.__ros_util = RosUtilClass()
 
-    def __get_ros_publishers(self, reader):
+
+    def __get_ros_publishers(self, reader: Any):
         topics_types = RosUtil.get_topics_types(reader)
         for ros_topic, data_type in topics_types.items():
             if  ros_topic not in self.__ros_publishers:
-                ros_data_class = RosUtil.get_data_class(data_type)
+                self.__logger.info(f"Create Ros publisher for topic: {ros_topic}, datatype: {data_type}")
+                ros_data_class = self.__ros_util.get_data_class(data_type)
+                self.__logger.info(f"Ros publisher data class: {ros_data_class}")
                 if ROS_VERSION == "1":
                     self.__ros_publishers[ros_topic] = rospy.Publisher(ros_topic, ros_data_class, queue_size=64)
                 elif ROS_VERSION == "2":
@@ -90,7 +99,7 @@ class _RosbagConsumer:
                 time.sleep(1)
         
 
-    def __publish_msgs(self, bag_path):
+    def __publish_msgs(self, bag_path: str):
 
         if ROS_VERSION == "1":
             reader = rosbag.Bag(bag_path)
@@ -119,7 +128,7 @@ class _RosbagConsumer:
                 self.__ros_publishers[ros_topic].publish(ros_msg)
             del reader
 
-    def __read_s3(self, drain=False):
+    def __read_s3(self, drain:bool = False):
         try:
             while True:
                 msg = self.__s3_reader.response_queue().get(block=drain )
@@ -134,7 +143,7 @@ class _RosbagConsumer:
         except Empty:
             pass
        
-    def __publish_bag(self, json_msg):
+    def __publish_bag(self, json_msg: dict):
         if self.__s3_reader:
             while True:
                 try:
@@ -200,7 +209,7 @@ class _RosbagConsumer:
 
 
 class _ManifestConsumer:
-    def __init__(self, consumer=None):
+    def __init__(self, consumer: KafkaConsumer):
        
         self.__logger = logging.getLogger("manifest_consumer")
         logging.basicConfig(
@@ -233,7 +242,7 @@ class _ManifestConsumer:
             self.__logger.error(str(exc_value))
 
 class DataClient:
-    def __init__(self, config):
+    def __init__(self, config: dict):
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
             level=logging.INFO)
@@ -291,7 +300,7 @@ class DataClient:
         if self.__s3_reader.is_alive():
             self.__s3_reader.terminate()
 
-    def handle_request(self, request):
+    def handle_request(self, request: dict):
         self.__logger.info(f"validating data request {request}")
         validate_data_request(request)
         request["response_topic"] = self.__response_topic
@@ -319,13 +328,13 @@ class DataClient:
             self.__logger.error(str(exc_type))
             self.__logger.error(str(exc_value))
     
-    def __send_request_msg(self, request):
+    def __send_request_msg(self, request: dict):
         msg = {"request": request}
         self.__logger.info(f"send request message: {msg}")
         self.__producer.send(request["kafka_topic"], json.dumps(msg).encode('utf-8'))
         self.__producer.flush()
 
-    def __request_rosbag(self, request=None):
+    def __request_rosbag(self, request: dict):
         try:
             s3 = request["accept"].startswith("s3/")
             no_playback=request.get("no_playback")
@@ -341,10 +350,12 @@ class DataClient:
             else:
                 storage_id = None
                 storage_preset_profile = None
-                
+            
+            rosutil_classname = self.__config["rosutil_classname"]
             rosbag_consumer = _RosbagConsumer(consumer=self.__consumer, s3_reader=s3_reader,
                 no_playback=no_playback, use_time=self.__use_time, ros2_node=self.__ros2_node,
-                storage_id=storage_id, storage_preset_profile=storage_preset_profile)
+                storage_id=storage_id, storage_preset_profile=storage_preset_profile, 
+                rosutil_classname=rosutil_classname)
             self.__send_request_msg(request=request)
             rosbag_consumer()
         except Exception as _:
@@ -353,7 +364,7 @@ class DataClient:
             self.__logger.error(str(exc_type))
             self.__logger.error(str(exc_value))
 
-    def __request_manifest(self, request=None):
+    def __request_manifest(self, request: dict):
         try:
             manifest_consumer = _ManifestConsumer(consumer=self.__consumer)
             self.__send_request_msg(request=request)

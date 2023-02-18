@@ -46,10 +46,10 @@ class S3DirectoryReader(Process):
 
         self.__logger.info("process initialized")
 
-    def request_queue(self):
+    def request_queue(self) -> Queue:
         return self.__req
 
-    def response_queue(self):
+    def response_queue(self) -> Queue:
         return self.__resp
 
     def __exit_gracefully(self, signum, frame):

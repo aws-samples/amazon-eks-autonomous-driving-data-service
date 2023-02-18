@@ -23,6 +23,7 @@ import sys, traceback
 import logging
 import json
 import time
+from typing import Any
 
 from common.util import  random_string, validate_data_request
 from ros_data_node import RosDataNode
@@ -43,7 +44,7 @@ class DataService(RosDataNode):
         self.__logger.info(f"Initialization complete {config}")
 
 
-    def __handle_message(self, message=None):
+    def __handle_message(self, message: Any):
         try: 
             json_msg = json.loads(message.value) 
             request = json_msg["request"]
@@ -75,13 +76,15 @@ class DataService(RosDataNode):
 
        
         topic = self._config["kafka_topic"]
+        dataset = self._config["dataset"]
+        schema_name = dataset["schema_name"]
         self.__consumer = KafkaConsumer(topic, 
                     bootstrap_servers=self._config["servers"],
                     client_id=random_string(),
                     max_poll_records=1,
                     max_poll_interval_ms=self.MAX_POLL_INTERVAL_MS,
                     auto_offset_reset="earliest",
-                    group_id="a2d2-data-service")
+                    group_id=f"{schema_name}-data-service")
         self.__producer = KafkaProducer(bootstrap_servers=self._config["servers"], client_id=random_string())
         self.__start_ts = time.time()
 
@@ -94,14 +97,14 @@ class DataService(RosDataNode):
                 self.__logger.error(str(exc_type))
                 self.__logger.error(str(exc_value))
 
-    def __init_request(self, request):
+    def __init_request(self, request: dict):
         self.__response_topic = request["response_topic"]
         del request["response_topic"]
         del request["kafka_topic"]
 
         self._init_request(request)
 
-    def _send_response_msg(self, json_msg):
+    def _send_response_msg(self, json_msg: dict):
         json_msg['start_ts'] = self.__start_ts
         self.__producer.send(self.__response_topic, json.dumps(json_msg).encode('utf-8'))
 

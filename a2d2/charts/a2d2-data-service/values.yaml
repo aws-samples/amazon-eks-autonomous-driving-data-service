@@ -43,6 +43,10 @@ configMap:
     "dynamodb": {
       "data_request_table": ""
     },
+    "dataset": {
+      "schema_name": "a2d2",
+      "rosutil_classname": "a2d2_ros_util.A2d2RosUtil"
+    },
     "data_store": {
         "fsx": {
             "root": "/fsx",

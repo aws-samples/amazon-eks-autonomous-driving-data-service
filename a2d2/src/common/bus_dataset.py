@@ -18,16 +18,27 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+from typing import Any
 
 from common.db_reader import DatabaseReader
 from threading import Thread
-
+import logging
+from common.thread_utils import join_thread_timeout_retry
 
 class BusDataset():
-    def __init__(self, dbconfig=None, **request):
+    FETCH_TIMEOUT = 120
+    FETCH_RETRY = 3
+
+    def __init__(self, dbconfig: dict, schema: str, **request):
+        self.__logger = logging.getLogger("BusDataset")
+        logging.basicConfig(
+            format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
+            level=logging.INFO)
+        
         self.__dbreader = DatabaseReader(dbconfig)
         self.__dbreader.connect()
 
+        self.__schema = schema
         self.__cur_batch = None
         self.__next_batch = None
         self.__pre_fetch_thread = None
@@ -39,17 +50,21 @@ class BusDataset():
         self.__step = int(request['step'])
 
         self.fetch()
-        self.__pre_fetch_thread.join()
+        join_thread_timeout_retry(name="pre_fetch_thread", 
+                                  t=self.__pre_fetch_thread, timeout=self.FETCH_TIMEOUT, 
+                                  max_retry=self.FETCH_RETRY, logger=self.__logger)
 
-    def is_open(self):
+    def is_open(self) -> bool:
         return (self.__start_ts < self.__stop_ts) or self.__pre_fetch_thread or self.__next_batch
         
-    def read(self, query=None):
+    def read(self, query:str):
         self.__next_batch=self.__dbreader.query(query)
 
-    def fetch(self):
+    def fetch(self) -> Any:
         if self.__pre_fetch_thread:
-            self.__pre_fetch_thread.join()
+            join_thread_timeout_retry(name="pre_fetch_thread", 
+                                  t=self.__pre_fetch_thread, timeout=self.FETCH_TIMEOUT, 
+                                  max_retry=self.FETCH_RETRY, logger=self.__logger)
 
         self.end_ts = self.__start_ts + self.__step
         if self.end_ts > self.__stop_ts:
@@ -60,9 +75,9 @@ class BusDataset():
         self.__next_batch=None
 
         if self.__start_ts < self.__stop_ts:
-            query = '''select * from a2d2.bus_data where vehicle_id = 
-                '{0}' and scene_id = '{1}'  and data_ts >= {2}
-                AND data_ts < {3} order by data_ts;'''.format(self.__vehicle_id,
+            query = '''select * from {0}.bus_data where vehicle_id = 
+                '{1}' and scene_id = '{2}'  and data_ts >= {3}
+                AND data_ts < {4} order by data_ts;'''.format(self.__schema, self.__vehicle_id,
                     self.__scene_id,  self.__start_ts, self.end_ts)
             t=Thread(target=self.read, kwargs={"query": query})
             self.__pre_fetch_thread = t

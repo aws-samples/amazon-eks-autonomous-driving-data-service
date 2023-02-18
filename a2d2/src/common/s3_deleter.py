@@ -38,7 +38,7 @@ class S3Deleter(Process):
         self.__s3_client = get_s3_client()
         self.__logger.info("process initialized")
 
-    def request_queue(self):
+    def request_queue(self) -> Queue:
         return self.__req
 
     def run(self):
