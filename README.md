@@ -508,13 +508,11 @@ To customize the [setup-dev.sh](scripts/setup-dev.sh) script for your dataset wi
 
 ### Apply tutorial steps to your dataset
 
-Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial) starting with [Build dataset](#build-dataset) step. However, in this walk-through, you will need to make appropriate changes to the documented commands so you can use ADDS with your dataset. 
+Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial), but starting with the step [Setup EKS cluster environment](#setup-eks-cluster-environment). You will need to make following changes to the documented tutorial steps, so you can use ADDS with your dataset:
 
-In particular:
-
-1. You will need to  execute your ETL script instead of [scripts/a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) so you can launch your workflow to upload your data into S3 and Redshift tables.
-2. You will need to install your Helm charts to run your runtime services instead of installing the charts for A2D2 dataset. 
-3. You will need to create your data client configuration files, similar to the file [a2d2/config/c-config-ex1.json](a2d2/config/c-config-ex1.json). These files will entirely depend on the contents of your dataset, as your sensor data would  depend on your vehicle fleet configuration.
+* In [Build dataset](#build-dataset) step, you will need to  execute your ETL script instead of [scripts/a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) so you can launch your workflow to upload your data into S3 and Redshift tables.
+* You will need to use your Helm charts to run your runtime services instead of using the charts for A2D2 dataset. 
+* You will need to create and use data client configuration files similar to the example [a2d2/config/c-config-ex1.json](a2d2/config/c-config-ex1.json) file, but you must request data specific to your dataset. 
 
 ## Deleting the AWS CloudFormation stack
 
