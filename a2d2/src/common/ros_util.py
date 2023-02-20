@@ -52,8 +52,8 @@ class RosUtil(ABC):
     MARKER_ARRAY_CUBE_DATA_TYPE = "visualization_msgs/MarkerArray/Marker/CUBE"
     MARKER_ARRAY_DATA_TYPE = "visualization_msgs/MarkerArray"
     
-    __CATEGORY_COLORS = dict[str, list[int, int, int]]()
-    __NS_MARKER_ID = dict[str, int]()
+    __CATEGORY_COLORS = dict()
+    __NS_MARKER_ID = dict()
     __DATA_LOAD_FNS = {
             PCL_DATA_TYPE: np.load, 
             IMAGE_DATA_TYPE: cv2.imread, 
@@ -203,7 +203,7 @@ class RosUtil(ABC):
         return data_class
     
     @classmethod
-    def __category_color(cls, category:str) -> list[int, int, int]:
+    def __category_color(cls, category:str) -> list:
         color = cls.__CATEGORY_COLORS.get(category, None)
         if color is None:
             color = list(np.random.choice(range(255),size=3))
@@ -479,7 +479,7 @@ class RosUtil(ABC):
         return msg
 
     @classmethod
-    def __make_color(cls, rgb:list[int, int, int], a=1) -> ColorRGBA:
+    def __make_color(cls, rgb:list, a=1) -> ColorRGBA:
         c = ColorRGBA()
         c.r = rgb[0]
         c.g = rgb[1]
