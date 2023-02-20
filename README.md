@@ -1,16 +1,160 @@
-# Data Service for ADAS and ADS Development
+# Autonomous Driving Data Service (ADDS)
 
 ## Overview
 
-This is a [ROS](https://www.ros.org/) based data service for replaying dynamically selected drive scenes from a data store of multimodal data recorded from test drives undertaken to support the development of advanced driver assistance systems (ADAS), or automated driving systems (ADS). 
+ADDS is a [ROS](https://www.ros.org/) based data service for replaying selected drive scenes from multimodal driving datasets. The multimodal dataset used with ADDS is typically gathered during the development of advanced driver assistance systems (ADAS), or autonomous driving systems (ADS), and comprises of 2D image, 3D point cloud and vehicle bus data. 
 
-The data service is supported on [ROS 1 `noetic`](http://wiki.ros.org/noetic/Installation), and [ROS 2 `humble`](https://docs.ros.org/en/humble/index.html).
+One common reason for replaying drive data is to visualize the data. ADDS supports visualization of replayed data using any ROS visualization tool, for example [Foxglove studio](https://foxglove.dev/).
 
-## Key concepts
+ADDS is supported on [ROS 1 `noetic`](http://wiki.ros.org/noetic/Installation), and [ROS 2 `humble`](https://docs.ros.org/en/humble/index.html), and is pre-configured to use [Audi Autonomous Driving Dataset (A2D2)](https://www.a2d2.audi/a2d2/en.html). However, [ADDS can be extended](#extending-adds-to-other-datasets) to other multimodal driving datasets. 
 
-The data service runs as [Kubernetes Deployments](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster. The service auto-scales using [Horizontal Pod Autoscaler](https://docs.aws.amazon.com/eks/latest/userguide/horizontal-pod-autoscaler.html), and [Cluster Autoscaler](https://docs.aws.amazon.com/eks/latest/userguide/cluster-autoscaler.html). 
+In the following sections, we describe the ADDS [logical dataset design](#logical-dataset-design) and [runtime data services](#runtime-services). This is followed by a [step-by-step tutorial](#step-by-step-tutorial) for building and using ADDS with A2D2 dataset. Finally, we discuss [extending ADDS to other datasets](#extending-adds-to-other-datasets).
 
-Concretely, there are two manifestations for the data service:
+## Logical dataset design
+
+Any multimodal dataset used with ADDS is assumed to contain drive data gathered from a *homogeneous* vehicle fleet. By *homogeneous*, we mean that all the vehicles in the fleet have the same vehicle sensor array configuration, vehicle calibration, and vehicle bus data. 
+
+Each ADDS runtime instance serves one multimodal dataset. To serve multiple datasets, you need corresponding number of ADDS runtime instances. 
+
+Each multimodal dataset is comprised of multimodal [frame](#frame-data) and [tabular](#tabular-data) data.
+
+### Frame data
+
+The serialized multimodal data acquired in the vehicle in some file-format, for example, [MDF 4](https://www.asam.net/project-detail/asam-mdf-image-radar-lidar-sensor-logging/), [MCAP](https://mcap.dev/), or [Ros bag](http://wiki.ros.org/Bags), must be decomposed into discreet timestamped 2D image and 3D point cloud data frames, and the frames must be stored in an Amazon S3 bucket under some [bucket prefix](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html). 
+
+The workflow for decomposing the serialized data and storing it in S3 is not prescribed by ADDS.  For many public datasets, for example [A2D2: Audi Autonomous Driving Dataset](https://aws.amazon.com/marketplace/pp/prodview-ktq4gcovho2i4?sr=0-1&ref_=beagle&applicationId=AWSMPContessa#resources), and [Ford Multi-AV Seasonal Dataset](https://registry.opendata.aws/ford-multi-av-seasonal/), the serialized data has already been decomposed into discreet data frames. However, for these types of public datasets, one may still need to extract the discreet data frames from compressed archives (e.g. Zip or Tar files), and upload them to the ADDS S3 bucket.  
+
+For the discreet data frames stored in the S3 bucket, we need a fast retrieval mechanism so we can replay the data frames on-demand. For that purpose, we build a data frame *manifest* and store it in an [Amazon Redshift](https://docs.aws.amazon.com/redshift/) database table: This is described in detail in [drive data](#drive-data). The manifest contains pointers to the data frames stored in S3 bucket.  For the A2D2 dataset, the extraction and loading of the [drive data](#drive-data) is done automatically during the [step-by-step tutorial](#step-by-step-tutorial).
+
+The vehicle bus data is stored in an Amazon Redshift table and is described in [vehicle bus data](#vehicle-bus-data). 
+
+### Tabular data
+
+Each logical multimodal dataset must use a distinct [Amazon Redshift named schema](https://docs.aws.amazon.com/redshift/latest/dg/r_Schemas_and_tables.html). Below, we describe the data definition language (DDL) for creating the required Amazon Redshift tables within a given logical dataset's `schema_name`. 
+
+For the A2D2 dataset, we use `a2d2` as the Redshift schema name, and all the required tables are created automatically during the [step-by-step tutorial](#step-by-step-tutorial).
+
+[Amazon Redshift does not impose *Primary* and *Foreign* key constraints](https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-defining-constraints.html). This point is especially important to understand so you can avoid duplication of data in Redshift tables when you [extend ADDS to other datasets](#extending-adds-to-other-datasets).
+
+#### Vehicle data
+
+Vehicle data is stored in `schema_name.vehicle` table. The DDL for the table is shown below::
+
+	CREATE TABLE IF NOT EXISTS schema_name.vehicle
+	(
+		vehicleid VARCHAR(255) NOT NULL ENCODE lzo,
+		description VARCHAR(255) ENCODE lzo,
+		PRIMARY KEY (vehicleid)
+	)
+	DISTSTYLE ALL;
+
+The `vehicleid` refers to the required unique vehicle identifier. The `description` is optional.
+
+For the A2D2 dataset, the vehicle data is automatically loaded into the `a2d2.vehicle` table from [vehicle.csv](a2d2/data/vehicle.csv) during the [step-by-step tutorial](#step-by-step-tutorial).
+
+#### Sensor data
+
+Sensor data is stored in `schema_name.sensor` table. The DDL for the table is shown below::
+
+
+	CREATE TABLE IF NOT EXISTS schema_name.sensor
+	(
+		sensorid VARCHAR(255) NOT NULL ENCODE lzo,
+		description VARCHAR(255) ENCODE lzo,
+		PRIMARY KEY (sensorid)
+	)
+	DISTSTYLE ALL;
+
+Each `sensorid` must be unique in a dataset and must refer to a sensor in the *homogeneous* vehicle sensor array configuration. The `description` is optional.
+
+The implicit `sensorid` value `Bus` is **reserved** and denotes vehicle bus: This implicit value is *not* stored in the `schema_name.sensor` table.
+
+For the A2D2 dataset, the sensor data is automatically loaded into the `a2d2.sensor` table from [sensors.csv](a2d2/data/sensors.csv) during the [step-by-step tutorial](#step-by-step-tutorial).
+
+#### Drive data
+
+Image and point cloud data frames must be stored in an Amazon S3 bucket. Pointers to the S3 data frames must be stored in the `schema_name.drive_data` table. The DDL for the table is shown below:
+
+	create table
+	schema_name.drive_data
+	(
+		vehicle_id varchar(255) encode Text255 not NULL,
+		scene_id varchar(255) encode Text255 not NULL,
+		sensor_id varchar(255) encode Text255 not NULL,
+		data_ts BIGINT not NULL sortkey,
+		s3_bucket VARCHAR(255) encode lzo NOT NULL,
+		s3_key varchar(255) encode lzo NOT NULL,
+		primary key(vehicle_id, scene_id, sensor_id, data_ts),
+		FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid),
+		FOREIGN KEY(sensor_id) references a2d2.sensor(sensorid)
+	)
+	DISTSTYLE AUTO;
+
+The `scene_id` is an arbitrary identifier for a unique drive scene. 
+
+The `data_ts` is the acquisition timestamp for a discreet data frame and is typically measured in [international atomic time (TAI)](https://en.wikipedia.org/wiki/International_Atomic_Time).
+
+The `s3_bucket` is the name of the Amazon S3 bucket, and the `s3_key` is the [key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingObjects.html) for the data frame stored in the S3 bucket.
+
+For the A2D2 dataset, the drive data is automatically loaded into the `a2d2.drive_data` table during the [step-by-step tutorial](#step-by-step-tutorial).
+
+#### Vehicle bus data 
+
+To allow for the variation of the vehicle bus data across different datasets, the `schema_name.bus_data` table may define different columns across different datasets, but must have the same composite *primary key*, as detailed below. The DDL for the table is shown below, where the ellipsis (...) indicate dataset specific columns for storing the vehicle bus data.
+
+	create table schema_name.bus_data
+	(
+		vehicle_id varchar(255) encode Text255 not NULL,
+		scene_id varchar(255) encode Text255 not NULL,
+		data_ts BIGINT not NULL sortkey,
+		
+		... 
+	
+		primary key(vehicle_id, scene_id, data_ts),
+		FOREIGN KEY(vehicle_id) references schema_name.vehicle(vehicleid)
+	)
+	DISTSTYLE AUTO;
+
+For example, the DDL for the `a2d2.bus_data` table is shown below:
+
+	CREATE TABLE IF NOT EXISTS a2d2.bus_data 
+	( 
+		vehicle_id varchar(255) encode Text255 not NULL, 
+		scene_id varchar(255) encode Text255 not NULL, 
+		data_ts BIGINT not NULL sortkey, 
+		acceleration_x FLOAT4 not NULL, 
+		acceleration_y FLOAT4 not NULL, 
+		acceleration_z FLOAT4 not NULL, 
+		accelerator_pedal FLOAT4 not NULL, 
+		accelerator_pedal_gradient_sign SMALLINT not NULL, 
+		angular_velocity_omega_x FLOAT4 not NULL, 
+		angular_velocity_omega_y FLOAT4 not NULL, 
+		angular_velocity_omega_z FLOAT4 not NULL, 
+		brake_pressure FLOAT4 not NULL, 
+		distance_pulse_front_left FLOAT4 not NULL, 
+		distance_pulse_front_right FLOAT4 not NULL, 
+		distance_pulse_rear_left FLOAT4 not NULL, 
+		distance_pulse_rear_right FLOAT4 not NULL, 
+		latitude_degree FLOAT4 not NULL, 
+		latitude_direction SMALLINT not NULL, 
+		longitude_degree FLOAT4 not NULL, 
+		longitude_direction SMALLINT not NULL, 
+		pitch_angle FLOAT4 not NULL, 
+		roll_angle FLOAT4 not NULL, 
+		steering_angle_calculated FLOAT4 not NULL, 
+		steering_angle_calculated_sign SMALLINT not NULL, 
+		vehicle_speed FLOAT4 not NULL, 
+		primary key(vehicle_id, scene_id, data_ts), 
+		FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid) 
+	) DISTSTYLE AUTO;
+
+For the A2D2 dataset, the vehicle bus data is automatically loaded into the `a2d2.bus_data` table during the [step-by-step tutorial](#step-by-step-tutorial).
+
+## Runtime services
+
+ADDS runtime services are deployed as [Kubernetes Deployments](https://kubernetes.io/docs/concepts/workloads/pods/) in an [Amazon EKS](https://aws.amazon.com/eks/) cluster. ADDS auto-scales using [Horizontal Pod Autoscaler](https://docs.aws.amazon.com/eks/latest/userguide/horizontal-pod-autoscaler.html), and [Cluster Autoscaler](https://docs.aws.amazon.com/eks/latest/userguide/cluster-autoscaler.html). 
+
+Concretely, there are two manifestations for the ADDS runtime services:
 
 1. Rosbridge data service
 2. Kafka data service
@@ -25,11 +169,11 @@ The data client for Rosbridge data service can be any ROS visualization tool tha
 
 Kafka data service uses [Apache Kafka](https://kafka.apache.org/) as the communication channel. The data client sends the data request for sensor data on a pre-defined Kafka topic. The request includes the name of a Kafka response topic. The data service stages the response ROS bag(s) in the ROS bag store and responds with each ROS bag location on the Kafka response topic. 
 
-The data client for Kafka data service is a standlone [Python application](a2d2/src/data_client.py) that runs on the desktop and is used in cojunction with [`rviz`](http://wiki.ros.org/rviz) visualization tool. The Python application plays back the response ROS bag files on the local ROS server on the desktop, and the `rviz` tool is used to visualize the playback.  
+The data client for Kafka data service is a standalone [Python application](a2d2/src/data_client.py) that runs on the desktop and is used in conjunction with [`rviz`](http://wiki.ros.org/rviz) visualization tool. The Python application plays back the response ROS bag files on the local ROS server on the desktop, and the `rviz` tool is used to visualize the playback.  
 
 ![High-level system architecture](images/system-arch.jpeg) 
 
-*High-level system architecture for the data service*
+*Figure 1. High-level system architecture for the data service*
 
 The data service runtime uses [Amazon Elastic Kubernetes Service (EKS)](https://aws.amazon.com/eks/).  Raw sensor data store and ROS bag store can be configured to use [Amazon S3](https://aws.amazon.com/s3/), [Amazon FSx for Lustre](https://aws.amazon.com/fsx/), or [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Raw data manifest store uses [Amazon Redshift Serverless](https://aws.amazon.com/redshift/redshift-serverless/). The data processing workflow for building and loading the raw data manifest uses [AWS Batch](https://aws.amazon.com/batch/) with [Amazon Fargate](https://aws.amazon.com/fargate/), [AWS Step Functions](https://aws.amazon.com/step-functions/), and [Amazon Glue](https://aws.amazon.com/glue/). [Amazon Managed Streaming for Apache Kafka (MSK)](https://aws.amazon.com/msk/) provides the communication channel for the Kafka data service. 
 
@@ -37,8 +181,7 @@ While the tutorial below walks-through both the Kafka data service and the Rosbr
 
 ### Data request for sensor data
 
-Concretely, imagine the data client wants to request drive scene  data from [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) for vehicle id `a2d2`, drive scene id `20190401145936`, starting at timestamp `1554121593909500` (microseconds) , and stopping at timestamp `1554122334971448` (microseconds). The data client wants the response to include data **only** from the `front-left camera` in `sensor_msgs/Image` ROS data type, and the `front-left lidar` in `sensor_msgs/PointCloud2` ROS data type. The data client wants the response data to be staged on Amazon FSx for Lustre file system, partitioned across multiple ROS bag files. Such a data request can be encoded in a JSON object, as shown below:
-
+Concretely, imagine the data client wants to request drive scene  data from [Audi Autonomous Driving Dataset (A2D2)](https://www.a2d2.audi/a2d2/en.html) for vehicle id `a2d2`, drive scene id `20190401145936`, starting at timestamp `1554121593909500` (microseconds) , and stopping at timestamp `1554122334971448` (microseconds). The data client wants the response to include data **only** from the `front-left camera` in `sensor_msgs/Image` ROS data type, and the `front-left lidar` in `sensor_msgs/PointCloud2` ROS data type. The data client wants the response data to be staged on Amazon FSx for Lustre file system, partitioned across multiple ROS bag files. Such a data request can be encoded in a JSON object, as shown below:
 
 	{
 		"vehicle_id": "a2d2",
@@ -58,19 +201,23 @@ Concretely, imagine the data client wants to request drive scene  data from [A2D
 
 The `sensor_id` values are keys in `ros_topic` and `data_type` maps that map the sensors to ROS topics, and ROS data types, respectively. For a detailed description of each request field shown in the example above, see [data request fields](#RequestFields).
 
-## Tutorial step by step guide
+
+## Step-by-step tutorial
 
 ### Overview
-In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html). The high-level outline of this tutorial is as follows:
 
-* Prerequisites
-* Configure the data service
-* Extract and load the raw data, and the manifest
-* Run the data service
-* Run the data service client
+In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html). The high-level outline of the tutorial is as follows:
+
+1. [Prerequisites](#prerequisites)
+2. [Configure data service](#configure-data-service)
+3. [Build dataset](#build-dataset)
+4. [Run Kafka data service](#run-kafka-data-service)
+5. [Run Kafka data client](#run-kafka-data-client)
+6. [Run Rosbridge data service](#run-rosbridge-data-service)
+7. [Run Rosbridge data client](#run-rosbridge-data-client)
 
 ### Prerequisites
-This tutorial assumes you have an [AWS Account](https://aws.amazon.com/account/), and you have [Administrator job function](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_job-functions.html) access to the AWS Management Console.
+This tutorial assumes you have an [AWS Account](https://aws.amazon.com/account/), and you have [system administrator job function](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_job-functions.html) access to the AWS Management Console.
 
 To get started:
 
@@ -81,7 +228,7 @@ To get started:
 * Use the [public internet address](http://checkip.amazonaws.com/) of your laptop as the base value for the [CIDR](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html) to specify `DesktopRemoteAccessCIDR` parameter in the CloudFormation stack you create below.  
 * For all passwords used in this tutorial, we recommend using *strong* passwords using the best-practices recommended for [AWS root account user password](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_change-root.html).
 
-### Configure the data service
+### Configure data service
 
 #### Create AWS CloudFormation Stack
 The [AWS CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html) template `cfn/mozart.yml` in this repository creates [AWS Identity and Access Management (IAM)](https://aws.amazon.com/iam/) resources, so when you [create the CloudFormation Stack using the console](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html), in the **Review** step, you must check 
@@ -149,7 +296,7 @@ To setup the eks cluster environment, in the *working directory*, run the comman
 
 This step also builds and pushes the data service container image into [Amazon ECR](https://aws.amazon.com/ecr/).
 
-### Extract and load the raw data, and the manifest
+### Build dataset
 
 In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) dataset. This dataset is stored in compressed TAR format in `aev-autonomous-driving-dataset` S3 bucket in `eu-central-1`. We need to extract the A2D2 dataset into the S3 bucket for your stack, build the raw data manifest, and load the manifest into the raw data manifest store. To execute these steps, we use an [AWS Step Functions](https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html) state machine. To run the AWS Step Functions state machine, execute the following command in the *working directory*:
 
@@ -257,9 +404,121 @@ When you are done with the Rosbridge data service, stop it by executing the comm
 
 		helm delete a2d2-rosbridge
 
+### <a name="PreloadEFS"></a> Preload A2D2 data from S3 to EFS 
+
+This step can be executed anytime after [Configure data service](#configure-data-service). and is required **only** if you plan to configure the data service to use EFS as the raw data store, otherwise, it may be safely skipped. Execute following command to start preloading data from your S3 bucket to the EFS file system:
+
+	kubectl apply -n a2d2 -f a2d2/efs/stage-data-a2d2.yaml
+
+To check if the step is complete, execute:
+
+	kubectl get pods stage-efs-a2d2 -n a2d2
+
+If the pod is still `Running`, the step has not yet completed. This step takes approximately 6.5 hours to complete.
+
+## Extending ADDS to other datasets
+
+ADDS can be extended to other datasets using following steps:
+
+1. [Identify vehicle bus data attributes](#identify-vehicle-bus-data-attributes)
+2. [Create Redshift schema and tables](#create-redshift-schema-and-tables) 
+3. [Load vehicle and sensor data](#load-vehicle-and-sensor-data)
+4. [Extract and upload vehicle drive and bus data](#extract-and-upload-vehicle-drive-and-bus-data)
+5. [Define vehicle bus ROS message](#define-vehicle-bus-ros-message)
+6. [Extend `RosUtil` abc](#extend-rosutil-abc)
+7. [Define helm charts](#define-helm-charts)
+8. [Apply tutorial steps to your dataset](#apply-tutorial-steps-to-your-dataset)
+
+### Identify vehicle bus data attributes
+
+The first step in extending ADDS to other datasets is to identify the vehicle bus data attributes for your vehicle fleet.  Make a list of the names and data types for these attributes. You will need this information to define the [vehicle bus data](#vehicle-bus-data) table, and for [defining a new custom ROS message](#define-vehicle-bus-ros-message) for your vehicle bus data. 
+
+### Create Redshift schema and tables
+
+Next, create a [Redshift schema](https://docs.aws.amazon.com/redshift/latest/dg/r_Schemas_and_tables.html) for your dataset.  For the purposes of this documentation, we assume your schema is named `adds1`, i.e. `schema_name` is `adds1`.
+
+Next, create the tables defined in [tabular data](#tabular-data) using DDL. See example DDL scripts in [a2d2/ddl](a2d2/ddl/). Recall, when creating the DDL for [vehicle bus data](#vehicle-bus-data) table, you must define the table columns corresponding to the specific attributes in your vehicle bus data, while maintaining the *prescribed* primary key.
+
+### Load vehicle and sensor data
+
+Next, load data into the [vehicle data](#vehicle-data) and [sensor data](#sensor-data) tables created in your schema. 
+
+Keeping with the assumed naming convention, your tables will be named `adds1.vehicle` and `adds1.sensor`, respectively. See [vehicle.csv](a2d2/data/vehicle.csv) and [sensors.csv](a2d2/data/sensors.csv) for example data for A2D2 dataset, but note that your data may be different, and will depend on your unique vehicle, and sensor identifiers.
+
+### Extract and upload vehicle drive and bus data
+
+This is the step where you decompose the serialized data acquired in the vehicle into discreet timestamped 2D image and 3D point cloud data frames, and upload the data frames into your ADDS S3 bucket. You must also build a manifest for the data frames and upload the manifest to your [drive data](#drive-data) table. 
+
+You may want to use an automated workflow to implement this step. In AWS, you have the option of using [AWS Step Functions](https://aws.amazon.com/step-functions/), or [Amazon Managed Workflows for Apache Airflow (MWAA)](https://aws.amazon.com/managed-workflows-for-apache-airflow/) for orchestrating the workflow. You may also find [AWS Batch](https://aws.amazon.com/batch/) useful in implementing various steps in the workflow. For example, for the A2D2 dataset, we use AWS Step Functions and AWS Batch to extract and upload the [drive data](#drive-data) and the [vehicle bus data](#vehicle-bus-data). 
+
+You may want to automate the steps [Create Redshift schema and tables](#create-redshift-schema-and-tables), [Load vehicle and sensor data](#load-vehicle-and-sensor-data) and this step using a single script. For example, for the A2D2 dataset, we encapsulate the required ETL workflow in [a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) script.
+
+### Define vehicle bus ROS message
+
+Next, define a [custom ROS 2 message](https://docs.ros.org/en/crystal/Tutorials/Custom-ROS2-Interfaces.html) for encapsulating your vehicle bus data. You may create a [custom ROS 1 message](http://wiki.ros.org/ROS/Tutorials/CreatingMsgAndSrv), if you plan to use ROS 1.
+
+For example, for A2D2 dataset, the custom vehicle bus ROS 2 message, `a2d2_msgs/Bus`, is defined in [a2d2/colcon_ws/src/a2d2_msgs/](a2d2/colcon_ws/src/a2d2_msgs/), and for ROS 1 in [a2d2/catkin_ws/src/a2d2_msgs/](a2d2/catkin_ws/src/a2d2_msgs/).
+
+Keeping our assumed naming convention, you could define your custom vehicle bus ROS 2 message in `a2d2/colcon_ws/src/adds1_msgs/`, for ROS 1 in `a2d2/catkin_ws/src/adds1_msgs/`.
+
+### Extend `RosUtil` abc
+
+In this step, you must extend the [RosUtil](a2d2/src/common/ros_util.py) [abc](https://docs.python.org/3/library/abc.html) class to implement the *abstract* methods. For example, for the A2D2 dataset, we implemented the Python class [a2d2_ros_util.A2d2RosUtil](a2d2/src/a2d2_ros_util.py) to extend [RosUtil](a2d2/src/common/ros_util.py) class.
+
+Keeping our assumed naming convention, your python class name may be `adds1_ros_util.Adds1RosUtil`.
+
+### Define helm charts
+
+Next, you need to define new Helm charts used to run ADDS with your dataset. 
+
+The best way to define the new Helm charts is to copy the existing charts ([a2d2-data-service](a2d2/charts/a2d2-data-service/) and [a2d2-rosbridge](a2d2/charts/a2d2-rosbridge/) ) recursively into new charts. Keeping our assumed naming convention, your new charts would be `a2d2/charts/adds1-data-service/` and `a2d2/charts/adds1-rosbridge/`.
+
+To customize the new helm charts for your dataset with our assumed naming convention, do a find and replace for `a2d2-data-service` with `adds1-data-service`, and `a2d2-rosbridge` with `adds1-rosbridge`.  Do not do a global replace of `a2d2` with `adds1`.
+
+Next, we need to customize the values in `configMap` `dataset` and `calibration` fields in your charts' `values.yaml` files. For example, A2D2 dataset uses following  `dataset` and `calibration` fields:
+
+	configMap:
+	{
+		...
+
+		"dataset": {
+			"schema_name": "a2d2",
+			"rosutil_classname": "a2d2_ros_util.A2d2RosUtil"
+		},
+
+		...
+
+		"calibration": {
+			"cal_bucket": "",
+			"cal_key": "a2d2/cams_lidars.json"
+		}
+	}
+
+The `schema_name` must be set to the Redshift schema name for your dataset, for example, `adds1`. The `rosutil_classname` must be set to the fully-qualified Python class name for the class you implemented in [Extend `RosUtil` abc](#extend-rosutil-abc), for example, keeping with the naming convention, your class name maybe `adds1_ros_util.Adds1RosUtil`. 
+
+Leave the `calibration.cal_bucket` as shown above.
+
+The `cal_key` must point to the bucket prefix where your vehicle calibration data is stored. The `cal_key` may point to a calibration file, as in the example above, or to an S3 bucket folder: This is dependent on how you store your vehicle calibration data. The python class implemented in [Extend `RosUtil` abc](#extend-rosutil-abc) reads the data from `cal_key`.
+
+### Update setup script
+
+Save a copy of [setup-dev.sh](scripts/setup-dev.sh) script to preserve the original script. 
+
+To customize the [setup-dev.sh](scripts/setup-dev.sh) script for your dataset with our assumed naming convention, do a find and replace for `a2d2-data-service` with `adds1-data-service`, and `a2d2-rosbridge` with `adds1-rosbridge`. Do not do a global replace of `a2d2` with `adds1`.
+
+### Apply tutorial steps to your dataset
+
+Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial) starting with [Build dataset](#build-dataset) step. However, in this walk-through, you will need to make appropriate changes to the documented commands so you can use ADDS with your dataset. 
+
+In particular:
+
+1. You will need to  execute your ETL script instead of [scripts/a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) so you can launch your workflow to upload your data into S3 and Redshift tables.
+2. You will need to install your Helm charts to run your runtime services instead of installing the charts for A2D2 dataset. 
+3. You will need to create your data client configuration files, similar to the file [a2d2/config/c-config-ex1.json](a2d2/config/c-config-ex1.json). These files will entirely depend on the contents of your dataset, as your sensor data would  depend on your vehicle fleet configuration.
+
 ## Deleting the AWS CloudFormation stack
 
-When you no longer need the data service, you may delete the AWS CloudFormation stack from the AWS CloudFormation console. Deleting the CloudFormation stack deletes all the resources in the stack (including FSx for Lustre and EFS), *except for the Amazon S3 bucket*.
+When you no longer need the ADDS data service, you may delete the AWS CloudFormation stack from the AWS CloudFormation console. Deleting the CloudFormation stack deletes all the resources in the stack (including FSx for Lustre and EFS), *except for the Amazon S3 bucket*.
 
 ## <a name="Reference"></a> Reference
 
@@ -350,17 +609,3 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
 | UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|
 | VpcCIDR | This is a **required** parameter whereby you specify the [Amazon VPC](https://aws.amazon.com/vpc/?vpc-blogs.sort-by=item.additionalFields.createdDate&vpc-blogs.sort-order=desc) CIDR for the VPC created in the stack. Default value is 172.30.0.0/16. If you change this value, all the subnet parameters above may need to be set, as well.|
-
-### <a name="PreloadEFS"></a> Preload A2D2 data from S3 to EFS 
-
-*This step can be executed anytime after "Configure the data service" step has been executed*
-
-This step is required **only** if you plan to configure the data service to use EFS as the raw raw data store, otherwise, it may be safely skipped. Execute following command to start preloading data from your S3 bucket to the EFS file system:
-
-	kubectl apply -n a2d2 -f a2d2/efs/stage-data-a2d2.yaml
-
-To check if the step is complete, execute:
-
-	kubectl get pods stage-efs-a2d2 -n a2d2
-
-If the pod is still `Running`, the step has not yet completed. This step takes approximately 6.5 hours to complete.
