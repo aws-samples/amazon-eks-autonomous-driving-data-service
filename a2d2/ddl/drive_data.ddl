@@ -7,7 +7,7 @@ sensor_id varchar(255) encode Text255 not NULL,
 data_ts BIGINT not NULL sortkey,
 s3_bucket VARCHAR(255) encode lzo NOT NULL,
 s3_key varchar(255) encode lzo NOT NULL,
-primary key(vehicle_id, scene_id),
+primary key(vehicle_id, scene_id, sensor_id, data_ts),
 FOREIGN KEY(vehicle_id) references a2d2.vehicle(vehicleid),
 FOREIGN KEY(sensor_id) references a2d2.sensor(sensorid)
 )
