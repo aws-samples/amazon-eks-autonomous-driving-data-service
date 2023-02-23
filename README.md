@@ -169,7 +169,7 @@ The data client for Rosbridge data service can be any ROS visualization tool tha
 
 Kafka data service uses [Apache Kafka](https://kafka.apache.org/) as the communication channel. The data client sends the data request for sensor data on a pre-defined Kafka topic. The request includes the name of a Kafka response topic. The data service stages the response ROS bag(s) in the ROS bag store and responds with each ROS bag location on the Kafka response topic. 
 
-The data client for Kafka data service is a standalone [Python application](a2d2/src/data_client.py) that runs on the desktop and is used in conjunction with [`rviz`](http://wiki.ros.org/rviz) visualization tool. The Python application plays back the response ROS bag files on the local ROS server on the desktop, and the `rviz` tool is used to visualize the playback.  
+The data client for Kafka data service is a standalone [Python application](adds/src/kafka_data_client.py) that runs on the desktop and is used in conjunction with [`rviz`](http://wiki.ros.org/rviz) visualization tool. The Python application plays back the response ROS bag files on the local ROS server on the desktop, and the `rviz` tool is used to visualize the playback.  
 
 ![High-level system architecture](images/system-arch.jpeg) 
 
@@ -372,7 +372,7 @@ This service provides a `Kubernetes service` for data client connection. To find
 
 		kubectl get svc -n a2d2
 
-The sevice takes approximately 5 minutes to be ready after it is started, so you may not be able to connect to the service right away.
+The service takes approximately 5 minutes to be ready after it is started, so you may not be able to connect to the service right away.
 
 The raw data store for `a2d2-rosbridge` can be configured in [`a2d2/charts/a2d2-rosbridge/values.yaml`](a2d2/charts/a2d2-rosbridge/values.yaml). The default raw data store is `fsx`.
 
@@ -418,74 +418,70 @@ If the pod is still `Running`, the step has not yet completed. This step takes a
 
 ## Extending ADDS to other datasets
 
-ADDS can be extended to other datasets using following steps:
+This section describes how to extend ADDS to work with datasets other than `a2d2`. We recommend reading the entire section before executing any of the steps in this section.
+
+First, we must select a dataset name for the dataset you wish to add to ADDS. The dataset name should start with a letter, be all lowercase, and only contain alphanumeric characters. For the purposes of this documentation, we assume you want to add a dataset named `ds1`. To add a new dataset to ADDS, for example dataset `ds1`, start by executing following command:
+
+	./scripts/add-dataset.sh ds1
+
+The above command copies the [a2d2](a2d2/) folder to `ds1` folder, and customizes the files in the `ds1` folder to the extent automatically possible. This command also copies [a2d2_ros_util.py](adds/src/a2d2_ros_util.py) to `adds/src/ds1_ros_util.py`, ready for your customization. You must complete the customization of the new dataset following the steps below:
 
 1. [Identify vehicle bus data attributes](#identify-vehicle-bus-data-attributes)
 2. [Create Redshift schema and tables](#create-redshift-schema-and-tables) 
 3. [Load vehicle and sensor data](#load-vehicle-and-sensor-data)
-4. [Extract and upload vehicle drive and bus data](#extract-and-upload-vehicle-drive-and-bus-data)
+4. [Extract and upload vehicle drive and bus data](#extract-and-load-vehicle-drive-and-bus-data)
 5. [Define vehicle bus ROS message](#define-vehicle-bus-ros-message)
-6. [Extend `RosUtil` abc](#extend-rosutil-abc)
-7. [Define helm charts](#define-helm-charts)
+6. [Extend `RosUtil`](#extend-rosutil)
+7. [Specify calibration data path](#specify-calibration-data-path)
+8. [Customize data client configuration files](#customize-data-client-configuration-files)
 8. [Apply tutorial steps to your dataset](#apply-tutorial-steps-to-your-dataset)
 
 ### Identify vehicle bus data attributes
 
-The first step in extending ADDS to other datasets is to identify the vehicle bus data attributes for your vehicle fleet.  Make a list of the names and data types for these attributes. You will need this information to define the [vehicle bus data](#vehicle-bus-data) table, and for [defining a new custom ROS message](#define-vehicle-bus-ros-message) for your vehicle bus data. 
+To extend ADDS to other datasets, you must identify the vehicle bus data attributes for your vehicle fleet. You will need this information to define the [vehicle bus data](#vehicle-bus-data) table columns, and for [defining a new custom ROS message](#define-vehicle-bus-ros-message) for your vehicle bus data. 
 
 ### Create Redshift schema and tables
 
-Next, create a [Redshift schema](https://docs.aws.amazon.com/redshift/latest/dg/r_Schemas_and_tables.html) for your dataset.  For the purposes of this documentation, we assume your schema is named `adds1`, i.e. `schema_name` is `adds1`.
+Create a [Redshift schema](https://docs.aws.amazon.com/redshift/latest/dg/r_Schemas_and_tables.html) for your dataset.  Choose the dataset Redshift schema name the same as the dataset name, for example, `ds1`: This is not a hard requirement, but this will make customization for your dataset much simpler.
 
-Next, create the tables defined in [tabular data](#tabular-data) using DDL. See example DDL scripts in [a2d2/ddl](a2d2/ddl/). Recall, when creating the DDL for [vehicle bus data](#vehicle-bus-data) table, you must define the table columns corresponding to the specific attributes in your vehicle bus data, while maintaining the *prescribed* primary key.
+Create the Redshift tables `ds1.vehicle`, `ds1.sensor`, and `ds1.drive_data`,  using the DDL files in the folder `ds1/ddl/`. 
+
+Recall, when creating the DDL for [vehicle bus data](#vehicle-bus-data) table, you must define the table columns corresponding to the specific attributes in *your vehicle bus data*, while maintaining the *prescribed* primary key. Therefore, modify `ds1/ddl/bus_data.ddl` for your vehicle bus data, and create `ds1.bus_data` table.
 
 ### Load vehicle and sensor data
 
-Next, load data into the [vehicle data](#vehicle-data) and [sensor data](#sensor-data) tables created in your schema. 
+Load data into the `ds1.vehicle` and `ds1.sensor` tables. 
 
-Keeping with the assumed naming convention, your tables will be named `adds1.vehicle` and `adds1.sensor`, respectively. See [vehicle.csv](a2d2/data/vehicle.csv) and [sensors.csv](a2d2/data/sensors.csv) for example data for A2D2 dataset, but note that your data may be different, and will depend on your unique vehicle, and sensor identifiers.
+See [vehicle.csv](a2d2/data/vehicle.csv) and [sensors.csv](a2d2/data/sensors.csv) for A2D2 vehicle and sensor data, but note that your data may be be different, and will depend on your vehicle and sensor identifiers. It is recommended that you use user-friendly names to identify the vehicles and sensors, since they appear in each data request.
 
-### Extract and upload vehicle drive and bus data
+### Extract and load vehicle drive and bus data
 
-This is the step where you decompose the serialized data acquired in the vehicle into discreet timestamped 2D image and 3D point cloud data frames, and upload the data frames into your ADDS S3 bucket. You must also build a manifest for the data frames and upload the manifest to your [drive data](#drive-data) table. 
+This is the step where you decompose the serialized data acquired in the vehicle into discreet timestamped 2D image and 3D point cloud data frames, and upload the data frames into the ADDS S3 bucket. You must also build a manifest for the data frames, and upload the manifest to the [drive data](#drive-data) table. 
 
 You may want to use an automated workflow to implement this step. In AWS, you have the option of using [AWS Step Functions](https://aws.amazon.com/step-functions/), or [Amazon Managed Workflows for Apache Airflow (MWAA)](https://aws.amazon.com/managed-workflows-for-apache-airflow/) for orchestrating the workflow. You may also find [AWS Batch](https://aws.amazon.com/batch/) useful in implementing various steps in the workflow. For example, for the A2D2 dataset, we use AWS Step Functions and AWS Batch to extract and upload the [drive data](#drive-data) and the [vehicle bus data](#vehicle-bus-data). 
 
-You may want to automate the steps [Create Redshift schema and tables](#create-redshift-schema-and-tables), [Load vehicle and sensor data](#load-vehicle-and-sensor-data) and this step using a single script. For example, for the A2D2 dataset, we encapsulate the required ETL workflow in [a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) script.
+You may want to combine the steps [Create Redshift schema and tables](#create-redshift-schema-and-tables), [Load vehicle and sensor data](#load-vehicle-and-sensor-data) and this step in a single script (see, for example, [scripts/a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) used for A2D2 dataset).
 
 ### Define vehicle bus ROS message
 
 Next, define a [custom ROS 2 message](https://docs.ros.org/en/crystal/Tutorials/Custom-ROS2-Interfaces.html) for encapsulating your vehicle bus data. You may create a [custom ROS 1 message](http://wiki.ros.org/ROS/Tutorials/CreatingMsgAndSrv), if you plan to use ROS 1.
 
-For example, for A2D2 dataset, the custom vehicle bus ROS 2 message, `a2d2_msgs/Bus`, is defined in [a2d2/colcon_ws/src/a2d2_msgs/](a2d2/colcon_ws/src/a2d2_msgs/), and for ROS 1 in [a2d2/catkin_ws/src/a2d2_msgs/](a2d2/catkin_ws/src/a2d2_msgs/).
+For example, for A2D2 dataset, the custom vehicle bus ROS 2 message, `a2d2_msgs/Bus`, is defined in [adds/colcon_ws/src/a2d2_msgs/](adds/colcon_ws/src/a2d2_msgs/), and for ROS 1 in [adds/catkin_ws/src/a2d2_msgs/](adds/catkin_ws/src/a2d2_msgs/).
 
-Keeping our assumed naming convention, you could define your custom vehicle bus ROS 2 message in `a2d2/colcon_ws/src/adds1_msgs/`, for ROS 1 in `a2d2/catkin_ws/src/adds1_msgs/`.
+Keeping with our assumed dataset name, you could define the custom vehicle bus ROS 2 message in `adds/colcon_ws/src/ds1_msgs/`, and for ROS 1 in `adds/catkin_ws/src/ds1_msgs/`.
 
-### Extend `RosUtil` abc
+### Extend `RosUtil`
 
-In this step, you must extend the [RosUtil](a2d2/src/common/ros_util.py) [abc](https://docs.python.org/3/library/abc.html) class to implement the *abstract* methods. For example, for the A2D2 dataset, we implemented the Python class [a2d2_ros_util.A2d2RosUtil](a2d2/src/a2d2_ros_util.py) to extend [RosUtil](a2d2/src/common/ros_util.py) class.
+In this step, you must extend the [RosUtil](adds/src/common/ros_util.py) [abc](https://docs.python.org/3/library/abc.html) class to implement the *abstract* methods. For example, for the A2D2 dataset, we implement the Python class [a2d2_ros_util.DatasetRosUtil](adds/src/a2d2_ros_util.py) to extend the abstract [RosUtil](adds/src/common/ros_util.py) class.
 
-Keeping our assumed naming convention, your python class name may be `adds1_ros_util.Adds1RosUtil`.
+Keeping our assumed dataset name, modify `adds/src/ds1_ros_util.py` to implement the [RosUtil](adds/src/common/ros_util.py) abstract class for `ds1` dataset. Note, the extended class you implement must be placed under `adds/src`.
 
-### Define helm charts
+### Specify calibration data path
 
-Next, you need to define new Helm charts used to run ADDS with your dataset. 
-
-The best way to define the new Helm charts is to copy the existing charts ([a2d2-data-service](a2d2/charts/a2d2-data-service/) and [a2d2-rosbridge](a2d2/charts/a2d2-rosbridge/) ) recursively into new charts. Keeping our assumed naming convention, your new charts would be `a2d2/charts/adds1-data-service/` and `a2d2/charts/adds1-rosbridge/`.
-
-To customize the new helm charts for your dataset with our assumed naming convention, do a find and replace for `a2d2-data-service` with `adds1-data-service`, and `a2d2-rosbridge` with `adds1-rosbridge`.  Do not do a global replace of `a2d2` with `adds1`.
-
-Next, we need to customize the values in `configMap` `dataset` and `calibration` fields in your charts' `values.yaml` files. For example, A2D2 dataset uses following  `dataset` and `calibration` fields:
+Next, we need to customize the Helm charts used to run ADDS with your dataset. Most of the customization has already been done automatically. You only need to customize  the values in `calibration` fields in `ds1/charts/ds1-data-service/values.yaml` and `ds1/charts/ds1-rosbridge/values.yaml` files. For example, A2D2 dataset uses following `calibration` fields:
 
 	configMap:
 	{
-		...
-
-		"dataset": {
-			"schema_name": "a2d2",
-			"rosutil_classname": "a2d2_ros_util.A2d2RosUtil"
-		},
-
 		...
 
 		"calibration": {
@@ -494,25 +490,38 @@ Next, we need to customize the values in `configMap` `dataset` and `calibration`
 		}
 	}
 
-The `schema_name` must be set to the Redshift schema name for your dataset, for example, `adds1`. The `rosutil_classname` must be set to the fully-qualified Python class name for the class you implemented in [Extend `RosUtil` abc](#extend-rosutil-abc), for example, keeping with the naming convention, your class name maybe `adds1_ros_util.Adds1RosUtil`. 
-
 Leave the `calibration.cal_bucket` as shown above.
 
-The `cal_key` must point to the bucket prefix where your vehicle calibration data is stored. The `cal_key` may point to a calibration file, as in the example above, or to an S3 bucket folder: This is dependent on how you store your vehicle calibration data. The python class implemented in [Extend `RosUtil` abc](#extend-rosutil-abc) reads the data from `cal_key`.
+The `cal_key` must point to the bucket prefix where your vehicle calibration data is stored. The `cal_key` may point to a calibration file, as in the example above, or to an S3 bucket folder: This is dependent on how you store your vehicle calibration data. The python class implemented in [Extend `RosUtil`](#extend-rosutil) uses the calibration data to implement its abstract methods.
 
-### Update setup script
+### Customize data client configuration files
 
-Save a copy of [setup-dev.sh](scripts/setup-dev.sh) script to preserve the original script. 
+You must customize the `"requests"` in the data client JSON configuration files under `ds1/config` to work with your dataset. We will explain this customization using the example of [c-config-ex1.json](a2d2/config/c-config-ex1.json), which makes a data request for `a2d2` data:
 
-To customize the [setup-dev.sh](scripts/setup-dev.sh) script for your dataset with our assumed naming convention, do a find and replace for `a2d2-data-service` with `adds1-data-service`, and `a2d2-rosbridge` with `adds1-rosbridge`. Do not do a global replace of `a2d2` with `adds1`.
+	"requests": [{
+		"kafka_topic": "a2d2", 
+		"vehicle_id": "a2d2",
+		"scene_id": "20190401121727",
+		"sensor_id": ["bus", "lidar/front_left", "camera/front_left"],
+		"start_ts": 1554115465612291, 
+		"stop_ts": 1554115765612291,
+		"ros_topic": {"bus": "/a2d2/bus", "lidar/front_left": "/a2d2/lidar/front_left", 
+				"camera/front_left": "/a2d2/camera/front_left"},
+		"data_type": {"bus": "a2d2_msgs/Bus", "lidar/front_left": "sensor_msgs/PointCloud2",
+				"camera/front_left": "sensor_msgs/Image"},
+		"step": 1000000,
+		"accept": "fsx/multipart/rosbag",
+		"preview": true
+	}]
+
+All the fields above need to be customized for your dataset. For example, your `kafka_topic` value will be `ds1`. Your `vehicle_id` will depend on the values in the `ds1.vehicle` table. your `sensor_id` values (except for the implicit value `bus`, which is always the same for all datasets) will depend on the values in the `ds1.sensor`  table. The Ros message data type for your bus data will be different. Your `scene_id` will be different. Your `start_ts` and `stop_ts` values will be different. Your `ros_topic` values may be different. You will need to customize all these values so you can request data from `ds1` dataset.
 
 ### Apply tutorial steps to your dataset
 
-Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial), but starting with the step [Setup EKS cluster environment](#setup-eks-cluster-environment). You will need to make following changes to the documented tutorial steps, so you can use ADDS with your dataset:
+Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial), but starting with the step [Setup EKS cluster environment](#setup-eks-cluster-environment). You will need to make following changes to the tutorial steps, so you can use ADDS with `ds1` dataset:
 
+* Instead of `a2d2`, use `ds1`. 
 * In [Build dataset](#build-dataset) step, you will need to  execute your ETL script instead of [scripts/a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) so you can launch your workflow to upload your data into S3 and Redshift tables.
-* You will need to use your Helm charts to run your runtime services instead of using the charts for A2D2 dataset. 
-* You will need to create and use data client configuration files similar to the example [a2d2/config/c-config-ex1.json](a2d2/config/c-config-ex1.json) file, but you must request data specific to your dataset. 
 
 ## Deleting the AWS CloudFormation stack
 

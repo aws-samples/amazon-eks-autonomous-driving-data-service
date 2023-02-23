@@ -14,7 +14,8 @@
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  
-[[ ! -z $(helm list | grep a2d2) ]] && echo "Stop running services" && exit 1
+[[ ! -z $(helm list | grep data-service) ]] && echo "Stop running services" && exit 1
+[[ ! -z $(helm list | grep rosbridge) ]] && echo "Stop running services " && exit 1
 
 scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIR=$scripts_dir/..
@@ -26,26 +27,7 @@ kubectl get svc || $scripts_dir/configure-eks-auth.sh
 # set aws region
 aws_region=$(aws configure get region)
 [[ -z "${aws_region}" ]] && echo "aws_region env variable is required" && exit 1
-[[ -z "${s3_bucket_name}" ]] && echo "s3_bucket_name env variable is required" && exit 1
-[[ -z "${redshift_cluster_host}" ]] && echo "redshift_cluster_host variable required" && exit 1
-[[ -z "${redshift_cluster_username}" ]] && echo "redshift_cluster_username variable required" && exit 1
-[[ -z "${redshift_cluster_dbname}" ]] && echo "redshift_cluster_dbname variable required" && exit 1
-[[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
-[[ -z "${eks_pod_sa_role_arn}" ]] && echo "eks_pod_sa_role_arn variable required" && exit 1
-[[ -z "${eks_node_role_arn}" ]] && echo "eks_node_role_arn variable required" && exit 1
-[[ -z "${data_request_table}" ]] && echo "data_request_table variable required" && exit 1
 [[ -z "${msk_cluster_arn}" ]] && echo "MSK cluster is not defined: WebSocket client only."
-
-DATE=`date +%s`
-# update helm charts values.yaml for a2d2-rosbridge
-sed -i -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
-    -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
-    -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
-    -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
-    -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
-    -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
-    -e "s|\"data_request_table\":.*|\"data_request_table\": \"${data_request_table}\"|g" \
-    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
 
 if [[ ! -z "${msk_cluster_arn}" ]]
 then
@@ -54,130 +36,23 @@ MSK_SERVERS=$(aws kafka --region ${aws_region} get-bootstrap-brokers \
             grep \"BootstrapBrokerString\"  | \
             awk '{split($0, a, " "); print a[2]}')
 
-# update helm charts values.yaml for a2d2-data-service and example client config files
-sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-    -e "s/\"host\": .*/\"host\": \"${redshift_cluster_host}\",/g" \
-    -e "s/\"user\": .*/\"user\": \"${redshift_cluster_username}\",/g" \
-    -e "s/\"password\": .*/\"password\": \"${redshift_cluster_password}\",/g" \
-    -e "s/\"rosbag_bucket\": .*/\"rosbag_bucket\": \"${s3_bucket_name}\",/g" \
-    -e "s/\"cal_bucket\": .*/\"cal_bucket\": \"${s3_bucket_name}\",/g" \
-    -e "s|roleArn:.*|roleArn: ${eks_pod_sa_role_arn}|g" \
-    -e "s|\"data_request_table\":.*|\"data_request_table\": \"${data_request_table}\"|g" \
-    $DIR/a2d2/charts/a2d2-data-service/values.yaml
-
-sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-        $DIR/a2d2/config/c-config-ex1.json
-                  
-sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-        $DIR/a2d2/config/c-config-ex2.json
-
-sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-        $DIR/a2d2/config/c-config-ex3.json
-
-sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-        $DIR/a2d2/config/c-config-ex4.json
-
-sed -i -e "s/\"servers\": .*/\"servers\": $MSK_SERVERS/g" \
-        $DIR/a2d2/config/c-config-lidar.json
 
 # Create kafka.config 
-cat >$DIR/a2d2/config/kafka.config <<EOL
+cat >$DIR/adds/config/kafka.config <<EOL
 {
-    "config-name": "a2d2",
-    "config-description": "A2D2 Kafka configuration",
+    "config-name": "adds",
+    "config-description": "ADDS Kafka configuration",
     "cluster-arn": "${msk_cluster_arn}",
-    "cluster-properties": "$DIR/a2d2/config/kafka-cluster.properties"
+    "cluster-properties": "$DIR/adds/config/kafka-cluster.properties"
 }
 EOL
 
-chown ubuntu:ubuntu $DIR/a2d2/config/kafka.config
+chown ubuntu:ubuntu $DIR/adds/config/kafka.config
 
 #Update MSK cluster config
 echo "Update MSK cluster configuration"
-python3 $scripts_dir/update-kafka-cluster-config.py --config $DIR/a2d2/config/kafka.config
+python3 $scripts_dir/update-kafka-cluster-config.py --config $DIR/adds/config/kafka.config
 fi
-
-# Update yaml files for creating EFS persistent-volume
-sed -i -e "s/volumeHandle: .*/volumeHandle: ${efs_id}/g" \
-    $DIR/a2d2/efs/pv-efs-a2d2.yaml
-
-sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
-    -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/efs/stage-data-a2d2.yaml
-
-# Update eks pod sa role in yaml files used for staging data
-sed -i -e "s|eks\.amazonaws\.com/role-arn:.*|eks.amazonaws.com/role-arn: ${eks_pod_sa_role_arn}|g" \
-    -e "s|value:[[:blank:]]\+$|value: ${s3_bucket_name}|g" $DIR/a2d2/fsx/stage-data-a2d2.yaml
-
-# create a2d2 namespace if needed
-kubectl get namespace a2d2 || kubectl create namespace a2d2
-
-# deploy AWS EFS CSI driver
-echo "Deploy AWS EFS CSI Driver"
-$scripts_dir/deploy-efs-csi-driver.sh
-kubectl apply -f $DIR/a2d2/efs/efs-sc.yaml
-
-# create EFS persistent volume
-echo "Create k8s persistent-volume and persistent-volume-claim for efs"
-kubectl apply -n a2d2 -f $DIR/a2d2/efs/pv-efs-a2d2.yaml
-kubectl apply -n a2d2 -f $DIR/a2d2/efs/pvc-efs-a2d2.yaml
-
-if [[ ! -z ${fsx_id} ]] && [[ ! -z ${fsx_mount_name} ]]
-then
-
-# deploy AWS FSx CSI driver
-echo "Deploy AWS FSx CSI Driver"
-$scripts_dir/deploy-fsx-csi-driver.sh
-
-sed -i -e "s/volumeHandle: .*/volumeHandle: ${fsx_id}/g" \
-    -e "s/dnsname: .*/dnsname: ${fsx_id}.fsx.${aws_region}.amazonaws.com/g" \
-    -e "s/mountname: .*/mountname: ${fsx_mount_name}/g"  \
-	$DIR/a2d2/fsx/pv-fsx-a2d2.yaml
-
-# create FSx persistent volume
-echo "Create k8s persistent-volume and persistent-volume-claim for fsx"
-kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
-kubectl apply -n a2d2 -f $DIR/a2d2/fsx/pvc-fsx-a2d2.yaml
-
-# uncomment fsx related configuration
-sed -i -e "s/\"input\": *\"s3\"/\"input\": \"fsx\"/" \
-    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
-
-sed -i -e "s/\"input\": *\"s3\"/\"input\": \"fsx\"/" \
-    $DIR/a2d2/charts/a2d2-data-service/values.yaml
-
-sed -i -e '/^#\+[^#]*- *name: \+fsx/ {s/^#\+//;n;s/^#\+//;n;s/^#\+//}' \
-    -e '/^#\+[^#]*- *mountPath: \+\/fsx/ {s/^#\+//;n;s/^#\+//}' \
-    $DIR/a2d2/charts/a2d2-rosbridge/templates/a2d2.yaml
-
-sed -i -e '/^#\+[^#]*- *name: \+fsx/ {s/^#\+//;n;s/^#\+//;n;s/^#\+//}' \
-    -e '/^#\+[^#]*- *mountPath: \+\/fsx/ {s/^#\+//;n;s/^#\+//}' \
-    $DIR/a2d2/charts/a2d2-data-service/templates/a2d2.yaml
-
-else
-
-#delete FSx persistent volume
-echo "Delete k8s persistent-volume and persistent-volume-claim for fsx"
-kubectl delete -n a2d2 -f $DIR/a2d2/fsx/pv-fsx-a2d2.yaml
-kubectl delete -n a2d2 -f $DIR/a2d2/fsx/pvc-fsx-a2d2.yaml
-
-# comment fsx related configuration
-sed -i -e "s/\"input\": *\"fsx\"/\"input\": \"s3\"/" \
-    $DIR/a2d2/charts/a2d2-rosbridge/values.yaml
-
-sed -i -e "s/\"input\": *\"fsx\"/\"input\": \"s3\"/" \
-    $DIR/a2d2/charts/a2d2-data-service/values.yaml
-
-sed -i -e '/^[^#]*- *name: \+fsx/ {s/^/#/;n;s/^/#/;n;s/^/#/}' \
-    -e '/^[^#]*- *mountPath: \+\/fsx/ {s/^/#/;n;s/^/#/}' \
-    $DIR/a2d2/charts/a2d2-rosbridge/templates/a2d2.yaml
-
-sed -i -e '/^[^#]*- *name: \+fsx/ {s/^/#/;n;s/^/#/;n;s/^/#/}' \
-    -e '/^[^#]*- *mountPath: \+\/fsx/ {s/^/#/;n;s/^/#/}' \
-    $DIR/a2d2/charts/a2d2-data-service/templates/a2d2.yaml
-
-fi
-
-kubectl get pv -n a2d2
 
 # deploy metrics server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
@@ -191,10 +66,19 @@ $scripts_dir/build-ecr-image.sh
 if [[ $ROS_DISTRO == 'melodic' || $ROS_DISTRO == 'noetic' ]]
 then
 # Build catkin_ws
-cd $DIR/a2d2/catkin_ws && catkin_make
-echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/catkin_ws/devel/setup.bash" >> /home/ubuntu/.bashrc
+cd $DIR/adds/catkin_ws && catkin_make
+echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/adds/catkin_ws/devel/setup.bash" >> /home/ubuntu/.bashrc
 else
 # Build colcon_ws
-cd $DIR/a2d2/colcon_ws && colcon build
-echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/colcon_ws/install/setup.bash" >> /home/ubuntu/.bashrc
+cd $DIR/adds/colcon_ws && colcon build
+echo "source /home/ubuntu/amazon-eks-autonomous-driving-data-service/adds/colcon_ws/install/setup.bash" >> /home/ubuntu/.bashrc
 fi
+
+## Execute setup dataset scripts
+for setup_dataset_script in `ls $scripts_dir/*-setup-dataset.sh`
+do
+    [[ -x $setup_dataset_script ]] && $setup_dataset_script
+done
+
+## show all the persistent volumes
+kubectl get pv

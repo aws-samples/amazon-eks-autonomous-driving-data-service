@@ -18,13 +18,13 @@ scripts_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 if [[ $ROS_DISTRO == 'melodic' ]]
 then
-    cd $scripts_dir/../a2d2 && ./build_tools/build_and_push.sh melodic-bionic
+    cd $scripts_dir/../adds && ./build_tools/build_and_push.sh melodic-bionic
 elif [[ $ROS_DISTRO == 'noetic' ]]
 then
-    cd $scripts_dir/../a2d2 && ./build_tools/build_and_push.sh noetic-focal
+    cd $scripts_dir/../adds && ./build_tools/build_and_push.sh noetic-focal
 elif [[ $ROS_DISTRO == 'humble' ]]
 then
-    cd $scripts_dir/../a2d2 && ./build_tools/build_and_push.sh humble-jammy
+    cd $scripts_dir/../adds && ./build_tools/build_and_push.sh humble-jammy
 else
     echo "Unsupported ROS distro: $ROS_DISTRO : Must be 'melodic', 'noetic' or 'humble' "
     exit 1

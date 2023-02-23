@@ -45,7 +45,7 @@ configMap:
     },
     "dataset": {
       "schema_name": "a2d2",
-      "rosutil_classname": "a2d2_ros_util.A2d2RosUtil"
+      "rosutil_classname": "a2d2_ros_util.DatasetRosUtil"
     },
     "data_store": {
         "fsx": {

@@ -32,7 +32,7 @@ from a2d2_msgs.msg import Bus
 
 from common.ros_util import RosUtil
 
-class A2d2RosUtil(RosUtil):
+class DatasetRosUtil(RosUtil):
     BUS_DATA_TYPE = 'a2d2_msgs/Bus'
 
     def __init__(self, bucket: str = None, key: str = None):
@@ -49,7 +49,7 @@ class A2d2RosUtil(RosUtil):
         """
 
         super().__init__(bucket=bucket, key=key)
-        self.__logger = logging.getLogger("A2d2RosUtil")
+        self.__logger = logging.getLogger("DatasetRosUtil")
         logging.basicConfig(
             format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
             level=logging.INFO)

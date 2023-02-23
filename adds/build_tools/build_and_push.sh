@@ -55,11 +55,8 @@ aws ecr get-login-password --region ${region} \
                 | docker login --username AWS --password-stdin ${account}.dkr.ecr.${region}.amazonaws.com
 docker push ${fullname}
 if [ $? -eq 0 ]; then
-	echo "Amazon ECR URI: ${fullname}"
-    echo "Update uri in $DIR/../charts/a2d2-data-service/values.yaml"
-    sed -i -e "s|uri:.*|uri: ${fullname}|g" $DIR/../charts/a2d2-data-service/values.yaml
-    echo "Update uri in $DIR/../charts/a2d2-rosbridge/values.yaml"
-    sed -i -e "s|uri:.*|uri: ${fullname}|g" $DIR/../charts/a2d2-rosbridge/values.yaml
+    # write ECR URI to .ecr_uri file so it can be read later to configure Helm charts
+    echo "${fullname}" > $DIR/../../.ecr_uri
 else
 	echo "Error: Image build and push failed"
 	exit 1
