@@ -274,8 +274,9 @@ Now you are ready to proceed with the following steps. For all the commands in t
 
 In this step, you need [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html) for *programmatic* access for the IAM user, or role, you used to create the AWS CloudFormation stack above. You must not use the AWS credentials for a different IAM user, or role. The AWS credentials are used one-time to enable EKS cluster access from the ROS desktop, and are *automatically* *removed* at the end of this step. 
 
-If you used an IAM role to create the CloudFormation stack above, you must manually configure the credentials associated with the IAM role in the `~/.aws/credentials` file with the following fields:
-
+If you used an IAM role to create the CloudFormation stack above, you must manually [setup the AWS credentials](https://docs.aws.amazon.com/sdk-for-java/v1/developer-guide/setup-credentials.html) associated with the IAM role in the `~/.aws/credentials` file with the following fields:
+		
+		[default]
 		aws_access_key_id=
 		aws_secret_access_key=
 		aws_session_token=
