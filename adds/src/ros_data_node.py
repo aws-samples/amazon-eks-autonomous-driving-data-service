@@ -184,6 +184,7 @@ class RosDataNode(ABC):
         sensors = self._request['sensor_id']
         lidar_view = self._request.get("lidar_view", "camera")
         image_request = self._request.get("image", "original")
+        vehicle = request["vehicle_id"]
        
         for sensor in sensors:
             data_type = self._request["data_type"][sensor]
@@ -194,9 +195,9 @@ class RosDataNode(ABC):
             self.__sensor_active[sensor] = True
 
             if lidar_view == "vehicle" and ( data_type == RosUtil.PCL_DATA_TYPE or data_type == RosUtil.MARKER_ARRAY_CUBE_DATA_TYPE) :
-                self.__sensor_transform[sensor] = self.__ros_util.sensor_to_vehicle(sensor=sensor)
+                self.__sensor_transform[sensor] = self.__ros_util.sensor_to_vehicle(sensor=sensor, vehicle=vehicle)
             elif  image_request == "undistorted" and data_type == RosUtil.IMAGE_DATA_TYPE:
-                self.__sensor_transform[sensor] = self.__ros_util.get_undistort_fn(sensor=sensor)
+                self.__sensor_transform[sensor] = self.__ros_util.get_undistort_fn(sensor=sensor, vehicle=vehicle)
 
         self._set_max_rate(self._request.get(self.MAX_RATE, 0))
 

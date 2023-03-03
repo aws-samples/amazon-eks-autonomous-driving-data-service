@@ -128,13 +128,15 @@ class RosUtil(ABC):
         return NotImplemented
 
     @abstractmethod
-    def sensor_to_vehicle(self, sensor:str) -> Any:    
+    def sensor_to_vehicle(self, sensor:str, vehicle:str=None) -> Any:    
         """Get sensor to vehicle transform matrix 
 
         Parameters
         ----------
         sensor: str
             Sensor id
+        vehicle: str
+            Vehicle id
 
         Returns
         -------
@@ -145,13 +147,15 @@ class RosUtil(ABC):
         return NotImplemented
 
     @abstractmethod
-    def vehicle_to_sensor(self, sensor:str) -> Any:
+    def vehicle_to_sensor(self, sensor:str, vehicle:str=None) -> Any:
         """Get vehicle to sensor transform matrix 
 
         Parameters
         ----------
         sensor: str
             Sensor id
+        vehicle: str
+            Vehicle id
 
         Returns
         -------
@@ -162,7 +166,7 @@ class RosUtil(ABC):
         return NotImplemented
 
     @abstractmethod
-    def get_undistort_fn(self, sensor: str) -> Callable:
+    def get_undistort_fn(self, sensor: str, vehicle:str=None) -> Callable:
         """Get function for undistorting  single frame of sensor data. 
         This method is typically used to get the function for 
         undistorting single Open CV image obtained from a given sensor. 
@@ -171,7 +175,9 @@ class RosUtil(ABC):
         ----------
         sensor: str
             Sensor id
-
+         vehicle: str
+            Vehicle id
+            
         Returns
         -------
         Any

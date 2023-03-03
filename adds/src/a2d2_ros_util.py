@@ -151,7 +151,7 @@ class DatasetRosUtil(RosUtil):
 
         return msg
 
-    def sensor_to_vehicle(self, sensor:str) -> Any:    
+    def sensor_to_vehicle(self, sensor:str, vehicle:str=None) -> Any:  
         """Return transform matrix from sensor ro vehicle frame
 
         Parameters
@@ -169,7 +169,7 @@ class DatasetRosUtil(RosUtil):
         cam_name = sensor.rsplit("/", 1)[1]
         return transform_from_to(self.__cal_json['cameras'][cam_name]['view'], self.__cal_json['vehicle']['view'])
 
-    def vehicle_to_sensor(self, sensor:str) -> Any:
+    def vehicle_to_sensor(self, sensor:str, vehicle:str=None) -> Any: 
         """Return transform matrix from vehicle ro sensor frame
 
         Parameters
@@ -187,7 +187,7 @@ class DatasetRosUtil(RosUtil):
         cam_name = sensor.rsplit("/", 1)[1]
         return transform_from_to(self.__cal_json['vehicle']['view'], self.__cal_json['cameras'][cam_name]['view'])
 
-    def get_undistort_fn(self, sensor: str) -> Callable:
+    def get_undistort_fn(self, sensor: str, vehicle:str=None) -> Callable:
         """Return a function that undistorts sensor data
 
         Parameters

@@ -12,7 +12,7 @@ In the following sections, we describe the ADDS [logical dataset design](#logica
 
 ## Logical dataset design
 
-Any multimodal dataset used with ADDS is assumed to contain drive data gathered from a *homogeneous* vehicle fleet. By *homogeneous*, we mean that all the vehicles in the fleet have the same vehicle sensor array configuration, vehicle calibration, and vehicle bus data. 
+Any multimodal dataset used with ADDS is assumed to contain drive data gathered from a *homogeneous* vehicle fleet. By *homogeneous*, we mean that all the vehicles in the fleet have the same vehicle sensor array configuration and vehicle bus data attributes. Each vehicle in the fleet can have distinct calibration data for the sensor array configuration.
 
 Each ADDS runtime instance serves one multimodal dataset. To serve multiple datasets, you need corresponding number of ADDS runtime instances. 
 
