@@ -2301,6 +2301,7 @@ Resources:
               pip3 install --upgrade awscli
               pip3 install jupyterlab
               pip3 install pyquaternion
+              pip3 install open3d
 
               # install ros
               echo "install ros $ROS ..."

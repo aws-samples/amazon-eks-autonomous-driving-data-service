@@ -24,6 +24,7 @@ from abc import ABC, abstractmethod
 import time
 from typing import Any, Callable, Sequence, Union
 import numpy as np
+import open3d
 import cv2
 import threading
 import os
@@ -46,20 +47,18 @@ elif ROS_VERSION == "2":
 else:
     raise ValueError("Unsupported ROS_VERSION:" + str(ROS_VERSION))
 
+    
 class RosUtil(ABC):
     PCL_DATA_TYPE = "sensor_msgs/PointCloud2"
     IMAGE_DATA_TYPE = "sensor_msgs/Image"
     MARKER_ARRAY_CUBE_DATA_TYPE = "visualization_msgs/MarkerArray/Marker/CUBE"
     MARKER_ARRAY_DATA_TYPE = "visualization_msgs/MarkerArray"
+    ROS_MSGS = ["sensor_msgs", "std_msgs", "geometry_msgs"]
+        
     
     __CATEGORY_COLORS = dict()
     __NS_MARKER_ID = dict()
-    __DATA_LOAD_FNS = {
-            PCL_DATA_TYPE: np.load, 
-            IMAGE_DATA_TYPE: cv2.imread, 
-            MARKER_ARRAY_CUBE_DATA_TYPE: load_json_from_file
-    }
-
+    __DATA_LOAD_FNS = dict()
     __ROS_MSG_FNS = dict()
 
     @staticmethod
@@ -193,6 +192,7 @@ class RosUtil(ABC):
 
     def get_data_class(self, data_type: str):
         data_class = None
+        
         if data_type == self.IMAGE_DATA_TYPE:
             data_class = Image
         elif data_type == self.PCL_DATA_TYPE:
@@ -203,11 +203,60 @@ class RosUtil(ABC):
             data_class = MarkerArray
         elif data_type == self.MARKER_ARRAY_DATA_TYPE:
              data_class = MarkerArray
-        else:
-            raise ValueError("Data type not supported:" + str(data_type))
+        elif data_type.split("/", 1)[0] in self.ROS_MSGS:
+            classname = data_type.replace("/", ".msg.") # we infer class name and try to load it
+            data_class = self.dynamic_import(classname)
+        
+        if data_class == None:
+            raise ValueError("Unsupported data type:" + str(data_type))
 
         return data_class
     
+    @classmethod
+    def load_point_cloud(cls, path:str) -> Any:
+        """Load point cloud data using either numpy.load for .npy or .npz files,
+            and open3d.io.read_point_cloud for open3d point cloud files.
+
+        Parameters
+        ----------
+        path: str
+            Path to the file
+        
+        Returns
+        -------
+        Any
+            Point cloud data
+        """
+
+        _, file_extension = os.path.splitext(path)
+        if isinstance(file_extension, str) and file_extension.lower() in [".npy", ".npz"]:
+            return np.load(path)
+        else:
+            return open3d.io.read_point_cloud(path)
+    
+    @classmethod
+    def ros_msg_from_json(cls, data: dict, data_type: str, transform:Any=None) -> Any:
+        """Convert json to ros message
+
+        Parameters
+        ----------
+        data: dict
+            Json object
+        data_type: str
+            Ros data type
+        transform: Any
+            Ignored
+
+        Returns
+        -------
+        Any
+            Ros message
+        """
+        classname = data_type.replace("/", ".msg.") 
+        DataClass = cls.dynamic_import(classname)
+        return DataClass(**data)
+
+        
     @classmethod
     def __category_color(cls, category:str) -> list:
         color = cls.__CATEGORY_COLORS.get(category, None)
@@ -443,7 +492,7 @@ class RosUtil(ABC):
         return msg
 
     @classmethod
-    def pcl_dense_msg(cls, points:Any, reflectance:Any, transform:Any) -> PointCloud2:
+    def pcl_dense_msg(cls, points:Any, reflectance:Any, transform:Any, colors:Any=None) -> PointCloud2:
         """Get Ros dense point cloud message
 
         Parameters
@@ -452,8 +501,12 @@ class RosUtil(ABC):
             Numpy array of points shape [N, 3]
         reflectance: Any
             Numpy array of reflectance values shape [N,]
+            if reflectance is None, colors must be not None
         transform: Any
             Numpy array transform matrix shape [4, 4]
+        colors: Any
+            Numpy array colors matrix shape [N, 3]
+            If colors is not None, reflectance must be None
 
         Returns
         -------
@@ -461,11 +514,13 @@ class RosUtil(ABC):
             Ros dense point cloud message
         """
 
+        assert reflectance is None or colors is None
+
         if transform is not None:
             points_trans = cls.transform_points_frame(points=points, transform=transform)
             points = points_trans[:,0:3]
 
-        colors = np.stack([reflectance, reflectance, reflectance], axis=1)
+        colors = np.stack([reflectance, reflectance, reflectance], axis=1) if colors is None else colors
         assert(points.shape == colors.shape)
     
         msg = PointCloud2()
@@ -657,7 +712,7 @@ class RosUtil(ABC):
 
         idx = 0
 
-        load_fn = cls.__DATA_LOAD_FNS[data_type]
+        load_fn = cls.get_data_load_fn(data_type=data_type)
         for f in data_files:
             path = f[1]
             data_loader[idx] = threading.Thread(target=cls.__load_data_from_file, 
@@ -686,7 +741,13 @@ class RosUtil(ABC):
 
     @classmethod 
     def get_data_load_fn(cls, data_type):
-        return cls.__DATA_LOAD_FNS.get(data_type, None)
+
+        if len(cls.__DATA_LOAD_FNS) == 0:
+            cls.__DATA_LOAD_FNS[cls.PCL_DATA_TYPE] = cls.load_point_cloud
+            cls.__DATA_LOAD_FNS[cls.IMAGE_DATA_TYPE] = cv2.imread
+            cls.__DATA_LOAD_FNS[cls.MARKER_ARRAY_CUBE_DATA_TYPE] = load_json_from_file
+        
+        return cls.__DATA_LOAD_FNS.get(data_type, load_json_from_file)
     
     @classmethod
     def get_ros_msg_fn(cls, data_type: str) -> Callable:
@@ -710,7 +771,7 @@ class RosUtil(ABC):
             cls.__ROS_MSG_FNS[cls.PCL_DATA_TYPE] = cls.pcl_dense_msg
             cls.__ROS_MSG_FNS[cls.MARKER_ARRAY_CUBE_DATA_TYPE] = cls.marker_cube_msg
 
-        return cls.__ROS_MSG_FNS.get(data_type, None)
+        return cls.__ROS_MSG_FNS.get(data_type, cls.ros_msg_from_json)
    
     @classmethod
     def get_ros_msg_fn_params(cls, 
@@ -748,17 +809,24 @@ class RosUtil(ABC):
             params = {"cvim": data, 'transform': transform}
         elif data_type == cls.PCL_DATA_TYPE:
             params = dict()
-            for key in data.keys():
-                if "reflectance" in key:
-                    params["reflectance"] =  data[key]
-                elif "points" in key:
-                    params["points"] = data[key]
+            if isinstance(data, open3d.geometry.PointCloud):
+                params["points"] = np.asarray(data.points)
+                params["colors"] = np.asarray(data.colors)
+                params["reflectance"] = None
+            else:
+                for key in data.keys():
+                    if "reflectance" in key:
+                        params["reflectance"] =  data[key]
+                    elif "points" in key:
+                        params["points"] = data[key]
 
-                if len(params) == 2:
-                    break
+                    if len(params) == 2:
+                        break
         elif data_type == cls.MARKER_ARRAY_CUBE_DATA_TYPE:
             lifetime = cls.__get_marker_lifetime(request)
             params =  {"boxes": data, "ns": sensor, "lifetime": lifetime}
+        elif isinstance(data, dict) and data_type.split("/", 1)[0] in cls.ROS_MSGS:
+            params = {"data": data, "data_type": data_type}
         else:
             raise ValueError("Unsupported data type: {}".format(data_type))
 
@@ -796,3 +864,4 @@ class RosUtil(ABC):
                 break
 
         return ros_msgs
+    
