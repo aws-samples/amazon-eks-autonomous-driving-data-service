@@ -173,9 +173,8 @@ def create_manifest(request: dict,
 
 def load_json_from_file(path: str) -> dict:
     with open(path, "r") as json_file:
-        json = json.load(json_file)
-        json_file.close()
-        return json
+        json_data = json.load(json_file)
+        return json_data
 
 def delete_kafka_topics(bootstrap_servers: str, kafka_topics: list):
     admin = KafkaAdminClient(bootstrap_servers=bootstrap_servers)
