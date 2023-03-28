@@ -8,7 +8,7 @@ persistentVolumeClaim:
 fordav:
   name: fordav-data-service 
   image:
-    uri: 807253771232.dkr.ecr.us-west-2.amazonaws.com/mozart-noetic-focal:1.0
+    uri:
     policy: Always
   replicaCount: 2
   maxReplicaCount: 10
@@ -28,20 +28,20 @@ fordav:
     path: "fordav-data-service.conf"
   serviceAccount:
     name: fordav-data-service-sa
-    roleArn: arn:aws:iam::807253771232:role/dearborn-EksPodServiceAccountRole-93MCLQAJ1CR2
+    roleArn: 
 
 configMap:
   {
-    "servers": "b-1.dearborn.qohsjd.c2.kafka.us-west-2.amazonaws.com:9092,b-3.dearborn.qohsjd.c2.kafka.us-west-2.amazonaws.com:9092,b-2.dearborn.qohsjd.c2.kafka.us-west-2.amazonaws.com:9092",
+    "servers": "",
     "kafka_topic": "fordav",
     "database": {
         "dbname": "mozart",
-        "host": "mozart.807253771232.us-west-2.redshift-serverless.amazonaws.com",
+        "host": "",
         "user": "admin",
-        "password": "arn:aws:secretsmanager:us-west-2:807253771232:secret:RedshiftMasterUserPasswordS-aJUagaxPHhif-1ImIne",
+        "password": "",
     },
     "dynamodb": {
-      "data_request_table": "dearborn-DataRequestTable-KXBV09MF0KAF"
+      "data_request_table": ""
     },
     "dataset": {
       "schema_name": "fordav",
@@ -57,13 +57,13 @@ configMap:
             "rosbag": "/efs/rosbag"
         },
         "s3": {
-            "rosbag_bucket": "aws-ajayvohra-pdx-a2d2",
+            "rosbag_bucket": "",
             "rosbag_prefix": "rosbag/"
         },
         "input": "fsx"
     },
     "calibration": {
-      "cal_bucket": "aws-ajayvohra-pdx-a2d2",
+      "cal_bucket": "",
       "cal_key": "fordav/data/Calibration"
     }
   }

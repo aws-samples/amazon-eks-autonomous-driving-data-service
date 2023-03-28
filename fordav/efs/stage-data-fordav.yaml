@@ -38,7 +38,7 @@ spec:
   - name: stage-data
     env:
     - name: S3_BUCKET
-      value: aws-ajayvohra-pdx-fordav
+      value: 
     - name: S3_PREFIX
       value: fordav/camera_lidar 
     - name: STAGE_DIR 
