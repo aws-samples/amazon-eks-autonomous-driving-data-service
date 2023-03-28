@@ -14,7 +14,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   csi:
     driver: fsx.csi.aws.com
-    volumeHandle: fs-0e386769564ce30a5
+    volumeHandle: fs-xxxxxxxxxxxxxxxxx
     volumeAttributes:
-      dnsname: fs-0e386769564ce30a5.fsx.us-west-2.amazonaws.com
-      mountname: eiuddbev
+      dnsname: fs-xxxxxxxxxxxxxxxxx.fsx.xx-xxxx-x.amazonaws.com
+      mountname: xxxxxxxx
