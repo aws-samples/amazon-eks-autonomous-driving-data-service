@@ -225,7 +225,7 @@ def __retry(attempt: int) -> int:
     if attempt <= MAX_ATTEMPTS:
         attempt += 1
 
-    interval = random.uniform(5**(attempt - 1), 5**attempt)
+    interval = random.uniform(2**(attempt - 1), 2**attempt)
     time.sleep(interval)
     return attempt
 

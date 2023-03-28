@@ -184,7 +184,30 @@ class RosUtil(ABC):
         """
 
         return NotImplemented
-        
+    
+    def sensor_to_sensor(self, from_sensor:str, to_sensor:str, vehicle:str=None) -> Any:
+        """Get sensor to sensor transform matrix 
+
+        Parameters
+        ----------
+        from_sensor: str
+            From sensor id
+        to_sensor: str
+            To sensor id
+        vehicle: str
+            Vehicle id
+
+        Returns
+        -------
+        Any
+            Numpy array transform matrix of shape [4,4]
+        """
+
+        from_transform = self.sensor_to_vehicle(sensor=from_sensor, vehicle=vehicle)
+        to_transform = self.vehicle_to_sensor(sensor=to_sensor, vehicle=vehicle)
+
+        return np.matmul(to_transform, from_transform)
+
     @classmethod
     def create_cv_brigde(cls):
         """Create CV bridge"""
@@ -433,7 +456,7 @@ class RosUtil(ABC):
         ]
 
     @classmethod
-    def pcl_sparse_msg(cls, points:Any, reflectance:Any, rows:Any, cols:Any, transform:Any) -> PointCloud2:
+    def pcl_sparse_msg(cls, points:Any, reflectance:Any, rows:Any, cols:Any, transform:Any, colors:Any=None) -> PointCloud2:
         """Get Ros sparse point cloud message
 
         Parameters
@@ -448,16 +471,23 @@ class RosUtil(ABC):
             Numpy array point cloud cols shape [N,]
         transform: Any
             Numpy array transform matrix shape [4, 4]
+        colors: Any
+            Numpy array colors matrix shape [N, 3]
+            If colors is not None, reflectance must be None
 
         Returns
         -------
         PointCloud2
             Ros sparse point cloud message
         """
+        assert reflectance is None or colors is None
 
         if transform is not None:
             points_trans = cls.transform_points_frame(points=points, transform=transform)
             points = points_trans[:,0:3]
+
+        colors = np.stack([reflectance, reflectance, reflectance], axis=1) if colors is None else colors
+        assert(points.shape == colors.shape)
 
         rows = (rows + 0.5).astype(np.int)
         height= np.amax(rows) + 1
@@ -465,7 +495,6 @@ class RosUtil(ABC):
         cols = (cols + 0.5).astype(np.int)
         width=np.amax(cols) + 1
 
-        colors = np.stack([reflectance, reflectance, reflectance], axis=1)
         pca = np.full((height, width, 3), np.inf)
         ca =np.full((height, width, 3), np.inf)
         assert(pca.shape == ca.shape)
@@ -634,7 +663,7 @@ class RosUtil(ABC):
         Returns
         -------
         Any
-            Transformed homegeneous points Numpy array shape [N, 4]
+            Transformed homogeneous points Numpy array shape [N, 4]
         """
 
         points_hom = np.ones((points.shape[0], 4))

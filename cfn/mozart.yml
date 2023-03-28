@@ -144,7 +144,7 @@ Parameters:
     Description: (Optional) FSx S3 prefix for importing data
     Type: String
     AllowedPattern: '^(?!/)[a-zA-Z0-9-_\./]*'
-    Default: "a2d2"
+    Default: ""
 
   EKSEncryptSecretsKmsKeyArn:
     Description: Encrypt EKS Secrets Key ARN (Leave blank to create)
@@ -285,7 +285,6 @@ Conditions:
     - !Equals 
       - !Ref UbuntuAMI
       - ''
-  EuCentral1: !Equals [ !Ref AWS::Region, "eu-central-1" ]
   MSKEnabled: !Equals [ !Ref DataClientType, "KafkaAndRosBridge" ]
   FSxForLustreEnabled: !Equals [ !Ref FSxForLustre, 'enabled' ]
 
@@ -1472,27 +1471,6 @@ Resources:
       ToPort: 65535
       CidrIp: '0.0.0.0/0'
   
-  BatchFargateS3Endpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Condition: EuCentral1
-    Properties:
-      PolicyDocument: 
-        Version: 2012-10-17
-        Statement: 
-          - Effect: "Allow"
-            Principal: "*"
-            Action: 
-              - "s3:Get*"
-              - "s3:List*"
-              - "s3:PutObject*"
-              - "s3:DeleteObject*"
-            Resource: "*"
-      RouteTableIds:
-        - !Ref BatchFargatePrivateRouteTable
-        - !Ref BatchFargatePublicRouteTable
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
-      VpcId: !Ref BatchFargateVpc
-
   BatchFargateEcrApiEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -1758,6 +1736,8 @@ Resources:
                 Resource: 
                   - 'arn:aws:s3:::aev-autonomous-driving-dataset'
                   - 'arn:aws:s3:::aev-autonomous-driving-dataset/*'
+                  - 'arn:aws:s3:::ford-multi-av-seasonal'
+                  - 'arn:aws:s3:::ford-multi-av-seasonal/*'
         - PolicyName: batch-job-batch-policy
           PolicyDocument:
             Statement:
@@ -1769,12 +1749,44 @@ Resources:
                   - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-definition/*'
               - Effect: Allow
                 Action:
+                  - "batch:TerminateJob"
+                Resource:
+                  - !Sub 'arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job/*'
+              - Effect: Allow
+                Action:
                   - "batch:DescribeJobs"
                 Resource:
                   - "*"
+        
         - PolicyName: batch-job-glue-policy
           PolicyDocument:
             Statement:
+              - Effect: Allow
+                Action:
+                  - "glue:CreateDatabase"
+                  - "glue:DeleteDatabase"
+                  - "glue:GetDatabase"
+                  - "glue:GetDatabases"
+                  - "glue:UpdateDatabase"
+                  - "glue:CreateTable"
+                  - "glue:DeleteTable"
+                  - "glue:BatchDeleteTable"
+                  - "glue:UpdateTable"
+                  - "glue:GetTable"
+                  - "glue:GetTables"
+                  - "glue:BatchCreatePartition"
+                  - "glue:CreatePartition"
+                  - "glue:DeletePartition"
+                  - "glue:BatchDeletePartition"
+                  - "glue:UpdatePartition"
+                  - "glue:GetPartition"
+                  - "glue:GetPartitions"
+                  - "glue:BatchGetPartition"
+                Resource:
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/*'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/*'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:userDefinedFunction/*'
               - Effect: Allow
                 Action:
                   - "glue:CreateJob"
@@ -1787,6 +1799,18 @@ Resources:
                   - iam:PassRole
                 Resource:
                   - !GetAtt GlueJobRole.Arn
+
+        - PolicyName: batch-job-athena-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "athena:GetQueryExecution"
+                  - "athena:GetQueryResults"
+                  - "athena:StartQueryExecution"
+                Resource:
+                  - !Sub 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*'
+
         - PolicyName: batch-job-secretsmanager-policy
           PolicyDocument:
             Statement:
@@ -1824,6 +1848,7 @@ Resources:
           ComputeEnvironment: !Ref FargateComputeEnvironment
       Priority: 1
       State: ENABLED
+
   PythonFromS3JobDefinition:
     Type: AWS::Batch::JobDefinition
     Properties: 
@@ -1833,6 +1858,37 @@ Resources:
         - FARGATE
       ContainerProperties:
         Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/pythonfroms3:focal'
+        FargatePlatformConfiguration:
+          PlatformVersion: "1.4.0"
+        ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
+        JobRoleArn: !GetAtt BatchJobRole.Arn
+        ResourceRequirements:
+          - Type: "VCPU"
+            Value: "4"
+          - Type: "MEMORY"
+            Value: "8192"
+        Volumes:
+          - EfsVolumeConfiguration:
+              FileSystemId: !Ref BatchFargateEfsFileSystem
+              AuthorizationConfig:
+                AccessPointId: !Ref BatchFargateEfsAccessPoint
+                Iam: "ENABLED"
+              RootDirectory: "/"
+              TransitEncryption: "ENABLED"
+            Name: "efs"
+        MountPoints:
+          - ContainerPath: "/efs"
+            SourceVolume: "efs"
+
+  Ros1PythonFromS3JobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties: 
+      JobDefinitionName: !Sub '${AWS::StackName}-ros1-pythonfroms3'
+      Type: container
+      PlatformCapabilities: 
+        - FARGATE
+      ContainerProperties:
+        Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/pythonfroms3:noetic'
         FargatePlatformConfiguration:
           PlatformVersion: "1.4.0"
         ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
@@ -1994,6 +2050,8 @@ Resources:
                 Resource: 
                   - 'arn:aws:s3:::aev-autonomous-driving-dataset'
                   - 'arn:aws:s3:::aev-autonomous-driving-dataset/*'
+                  - 'arn:aws:s3:::ford-multi-av-seasonal'
+                  - 'arn:aws:s3:::ford-multi-av-seasonal/*'
           PolicyName: 'DesktopS3Policy'
 
         - PolicyName: desktop-ssm
@@ -2301,7 +2359,7 @@ Resources:
               pip3 install --upgrade awscli
               pip3 install jupyterlab
               pip3 install pyquaternion
-              pip3 install open3d
+              pip3 install --ignore-installed open3d
 
               # install ros
               echo "install ros $ROS ..."
@@ -2324,21 +2382,27 @@ Resources:
               fi
 
               # Create roscore startup script
-              echo "#!/bin/bash" >> /usr/local/bin/start-roscore.sh
-              echo "source /opt/ros/$ROS/setup.bash" >> /usr/local/bin/start-roscore.sh
-              echo "roscore" >> /usr/local/bin/start-roscore.sh
-              chmod a+x /usr/local/bin/start-roscore.sh
+              if [[ ! -f /usr/local/bin/start-roscore.sh ]]
+              then
+                echo "#!/bin/bash" >> /usr/local/bin/start-roscore.sh
+                echo "source /opt/ros/$ROS/setup.bash" >> /usr/local/bin/start-roscore.sh
+                echo "roscore" >> /usr/local/bin/start-roscore.sh
+                chmod a+x /usr/local/bin/start-roscore.sh
+              fi
 
-              echo "[Unit]" >> /etc/systemd/system/roscore.service
-              echo "Description=roscore service" >> /etc/systemd/system/roscore.service
-              echo "" >> /etc/systemd/system/roscore.service
-              echo "[Service]" >> /etc/systemd/system/roscore.service
-              echo "User=ubuntu" >> /etc/systemd/system/roscore.service
-              echo "ExecStart=/usr/local/bin/start-roscore.sh" >> /etc/systemd/system/roscore.service
-              echo "Restart=on-abort" >> /etc/systemd/system/roscore.service
-              echo "" >> /etc/systemd/system/roscore.service
-              echo "[Install]" >> /etc/systemd/system/roscore.service
-              echo "WantedBy=graphical.target" >> /etc/systemd/system/roscore.service
+              if [[ ! -f /etc/systemd/system/roscore.service ]]
+              then
+                echo "[Unit]" >> /etc/systemd/system/roscore.service
+                echo "Description=roscore service" >> /etc/systemd/system/roscore.service
+                echo "" >> /etc/systemd/system/roscore.service
+                echo "[Service]" >> /etc/systemd/system/roscore.service
+                echo "User=ubuntu" >> /etc/systemd/system/roscore.service
+                echo "ExecStart=/usr/local/bin/start-roscore.sh" >> /etc/systemd/system/roscore.service
+                echo "Restart=on-abort" >> /etc/systemd/system/roscore.service
+                echo "" >> /etc/systemd/system/roscore.service
+                echo "[Install]" >> /etc/systemd/system/roscore.service
+                echo "WantedBy=graphical.target" >> /etc/systemd/system/roscore.service
+              fi
 
               systemctl enable roscore
               echo "install Ros $ROS complete"
@@ -2496,6 +2560,14 @@ Resources:
       Name: !Sub "/${AWS::StackName}/batch_job_definition"
       Type: String
       Value: !Sub '${AWS::StackName}-pythonfroms3'
+      Description: Batch job definition
+
+  Ros1BatchJobDefinitionSsm:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AWS::StackName}/ros1_batch_job_definition"
+      Type: String
+      Value: !Sub '${AWS::StackName}-ros1-pythonfroms3'
       Description: Batch job definition
 
   DesktoppRoleArnSsm:

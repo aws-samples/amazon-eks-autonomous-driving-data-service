@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    eks.amazonaws.com/role-arn: {{ .Values.fordav.serviceAccount.roleArn }}
+  name: {{ .Values.fordav.serviceAccount.name }}
+  namespace: {{ .Values.global.namespace }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  namespace: {{ .Values.global.namespace }}
+  name: {{ .Values.fordav.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.fordav.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+type: Opaque
+stringData:
+  config: |
+    {{ toJson .Values.configMap }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: {{ .Values.global.namespace }}
+  name: {{ .Values.fordav.name }}
+  labels:
+    app: {{ .Values.fordav.name }}
+spec:
+  replicas: {{ .Values.fordav.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.fordav.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.fordav.name }}
+    spec:
+      serviceAccountName: {{ .Values.fordav.serviceAccount.name }}
+      volumes:
+      - name: config
+        secret:
+          secretName: {{ .Values.fordav.name }}
+          items:
+          - key: config
+            mode: 400
+            path: {{ .Values.fordav.config.path }}
+      - name: fsx
+        persistentVolumeClaim:
+           claimName: {{ .Values.persistentVolumeClaim.fsx }} 
+      - name: efs 
+        persistentVolumeClaim:
+           claimName: {{ .Values.persistentVolumeClaim.efs }} 
+      - name: tmp
+        emptyDir: {}
+      containers:
+      - name: {{ .Values.fordav.name }} 
+        image: {{ .Values.fordav.image.uri }} 
+        imagePullPolicy: {{ .Values.fordav.image.policy }}
+        resources:
+          requests:
+            memory: {{ .Values.fordav.requests.memory }} 
+            cpu: {{ .Values.fordav.requests.cpu }} 
+        command:
+        - python
+        args:
+        - /mozart/data_service.py
+        - --config
+        - {{ .Values.fordav.config.dir }}/{{ .Values.fordav.config.path }}
+        volumeMounts:
+        - mountPath: {{ .Values.fordav.config.dir }}
+          name: config
+        - mountPath: /fsx
+          name: fsx
+        - mountPath: /efs
+          name: efs
+        - mountPath: /tmp
+          name: tmp
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  namespace: {{ .Values.global.namespace }}
+  name: {{ .Values.fordav.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.fordav.name }}
+  minReplicas: {{ .Values.fordav.replicaCount }} 
+  maxReplicas: {{ .Values.fordav.maxReplicaCount }} 
+  metrics:
+  - type: Resource
+    resource:
+      name: {{ .Values.fordav.metric.name }} 
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.fordav.metric.average }} 
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.fordav.behavior.scaleDown.stabilizationWindowSeconds }} 
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.fordav.behavior.scaleUp.stabilizationWindowSeconds }} 

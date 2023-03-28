@@ -123,7 +123,7 @@ cat >$DIR/a2d2/config/a2d2-semantic-sfn.config <<EOL
               }
             ] 
           },
-          "RetryStrategy": {"Attempts": 2},
+          "RetryStrategy": {"Attempts": 1},
           "Timeout": {"AttemptDurationSeconds": 3600}
         },
         "Next": "A2D2ExtractSemantic"
@@ -139,7 +139,7 @@ cat >$DIR/a2d2/config/a2d2-semantic-sfn.config <<EOL
             "Environment": [
               {
                 "Name": "S3_PYTHON_SCRIPT",
-                "Value": "s3://${s3_bucket_name}/scripts/glue-etl-job.py"
+                "Value": "s3://${s3_bucket_name}/scripts/a2d2_glue_etl_job.py"
               },
               {
                 "Name": "S3_JSON_CONFIG",
@@ -147,7 +147,7 @@ cat >$DIR/a2d2/config/a2d2-semantic-sfn.config <<EOL
               }
             ] 
           },
-          "RetryStrategy": {"Attempts": 2},
+          "RetryStrategy": {"Attempts": 1},
           "Timeout": {"AttemptDurationSeconds": 3600}
         },
         "Next": "A2D2UploadSemantic"
@@ -175,7 +175,7 @@ cat >$DIR/a2d2/config/a2d2-semantic-sfn.config <<EOL
               }
             ] 
           },
-          "RetryStrategy": {"Attempts": 2},
+          "RetryStrategy": {"Attempts": 1},
           "Timeout": {"AttemptDurationSeconds": 1800}
         },
         "End": true

@@ -50,7 +50,7 @@ def main(config):
    
     glue = boto3.client(service_name='glue')
 
-    job_name=f"a2d2-metadata-etl-{str(time.time()).replace('.','')}"
+    job_name=f"a2d2_metadata_etl-{str(time.time()).replace('.','')}"
 
     job = glue.create_job(Name=job_name, Role=config["glue_role"],
             GlueVersion='2.0',

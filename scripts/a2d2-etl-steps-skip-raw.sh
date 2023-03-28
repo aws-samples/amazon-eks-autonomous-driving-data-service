@@ -30,7 +30,7 @@ cd $scripts_dir && python3 get-ssm-params.py && source setenv.sh
 [[ -z "${redshift_cluster_dbname}" ]] && echo "redshift_cluster_dbname variable required" && exit 1
 [[ -z "${redshift_cluster_password}" ]] && echo "redshift_cluster_password variable required" && exit 1
 
-$scripts_dir/pythonfroms3-focal-ecr-image.sh
+$scripts_dir/pythonfroms3-ecr-image.sh focal
 
 # create requirements.txt
 cat >$scripts_dir/requirements.txt <<EOL
@@ -39,11 +39,11 @@ pandas
 numpy
 EOL
 
-aws s3 cp $scripts_dir/a2d2-metadata-etl.py s3://$s3_bucket_name/scripts/a2d2-metadata-etl.py
-aws s3 cp $scripts_dir/s3-extract-tar.py s3://$s3_bucket_name/scripts/s3-extract-tar.py
-aws s3 cp $scripts_dir/s3-extract-load.py s3://$s3_bucket_name/scripts/s3-extract-load.py
-aws s3 cp $scripts_dir/glue-etl-job.py s3://$s3_bucket_name/scripts/glue-etl-job.py
-aws s3 cp $scripts_dir/extract-bus-data.py s3://$s3_bucket_name/scripts/extract-bus-data.py
+aws s3 cp $scripts_dir/a2d2_metadata_etl.py s3://$s3_bucket_name/scripts/a2d2_metadata_etl.py
+aws s3 cp $scripts_dir/a2d2_extract_tar.py s3://$s3_bucket_name/scripts/a2d2_extract_tar.py
+aws s3 cp $scripts_dir/a2d2_extract_load.py s3://$s3_bucket_name/scripts/a2d2_extract_load.py
+aws s3 cp $scripts_dir/a2d2_glue_etl_job.py s3://$s3_bucket_name/scripts/a2d2_glue_etl_job.py
+aws s3 cp $scripts_dir/a2d2_extract_bus_data.py s3://$s3_bucket_name/scripts/a2d2_extract_bus_data.py
 aws s3 cp $scripts_dir/setup-redshift-db.py s3://$s3_bucket_name/scripts/setup-redshift-db.py
 aws s3 cp $scripts_dir/requirements.txt s3://$s3_bucket_name/scripts/requirements.txt
 
@@ -52,19 +52,19 @@ tmp_dir="/efs/tmp-$(date +%s)"
 # Create glue.config 
 s3_glue_output_prefix="glue/a2d2/$(date +%s)"
 
-cat >$DIR/a2d2/config/glue.config <<EOL
+cat >$DIR/a2d2/config/a2d2-glue.config <<EOL
 {
   "s3_bucket": "${s3_bucket_name}",
   "s3_output_prefix": "${s3_glue_output_prefix}",
   "glue_role": "${glue_job_role_arn}",
-  "script_location": "s3://${s3_bucket_name}/scripts/a2d2-metadata-etl.py"
+  "script_location": "s3://${s3_bucket_name}/scripts/a2d2_metadata_etl.py"
 }
 EOL
-chown ubuntu:ubuntu $DIR/a2d2/config/glue.config
+chown ubuntu:ubuntu $DIR/a2d2/config/a2d2-glue.config
 
 s3_bus_output_prefix="bus_data/a2d2/$(date +%s)"
 
-cat >$DIR/a2d2/config/bus_data.config <<EOL
+cat >$DIR/a2d2/config/a2d2-bus-data.config <<EOL
 {
   "s3_bucket": "${s3_bucket_name}",
   "s3_input_prefix": "a2d2/camera_lidar",
@@ -72,16 +72,16 @@ cat >$DIR/a2d2/config/bus_data.config <<EOL
   "s3_output_prefix": "${s3_bus_output_prefix}",
   "vehicle_id": "a2d2",
   "tmp_dir": "${tmp_dir}",
-  "script_location": "s3://${s3_bucket_name}/scripts/extract-bus-data.py"
+  "script_location": "s3://${s3_bucket_name}/scripts/a2d2_extract_bus_data.py"
 }
 EOL
-chown ubuntu:ubuntu $DIR/a2d2/config/bus_data.config
+chown ubuntu:ubuntu $DIR/a2d2/config/a2d2-bus-data.config
 
 aws s3 cp $DIR/a2d2/data/sensors.csv s3://${s3_bucket_name}/redshift/sensors.csv
 aws s3 cp $DIR/a2d2/data/vehicle.csv s3://${s3_bucket_name}/redshift/vehicle.csv
             
 # Create redshift.configs
-cat >$DIR/a2d2/config/redshift.config <<EOL
+cat >$DIR/a2d2/config/a2d2-redshift.config <<EOL
 {
   "host": "${redshift_cluster_host}",
   "user": "${redshift_cluster_username}",
@@ -105,7 +105,7 @@ cat >$DIR/a2d2/config/redshift.config <<EOL
   ]
 }
 EOL
-chown ubuntu:ubuntu $DIR/a2d2/config/redshift.config
+chown ubuntu:ubuntu $DIR/a2d2/config/a2d2-redshift.config
 
 # Create a2d2-data.config 
 cat >$DIR/a2d2/config/a2d2-data.config <<EOL
@@ -116,19 +116,19 @@ cat >$DIR/a2d2/config/a2d2-data.config <<EOL
   "dest_prefix": "a2d2",
   "job_definition": "${batch_job_definition}",
   "job_queue": "${batch_job_queue}",
-  "s3_python_script": "s3://${s3_bucket_name}/scripts/s3-extract-tar.py",
+  "s3_python_script": "s3://${s3_bucket_name}/scripts/a2d2_extract_tar.py",
   "s3_json_config": "s3://${s3_bucket_name}/config/a2d2-data.config",
   "tmp_dir": "${tmp_dir}"
 }
 EOL
 
 aws s3 cp $DIR/a2d2/config/a2d2-data.config s3://$s3_bucket_name/config/a2d2-data.config
-aws s3 cp $DIR/a2d2/config/glue.config s3://$s3_bucket_name/config/glue.config
-aws s3 cp $DIR/a2d2/config/bus_data.config s3://$s3_bucket_name/config/bus_data.config
-aws s3 cp $DIR/a2d2/config/redshift.config s3://$s3_bucket_name/config/redshift.config
+aws s3 cp $DIR/a2d2/config/a2d2-glue.config s3://$s3_bucket_name/config/a2d2-glue.config
+aws s3 cp $DIR/a2d2/config/a2d2-bus-data.config s3://$s3_bucket_name/config/a2d2-bus-data.config
+aws s3 cp $DIR/a2d2/config/a2d2-redshift.config s3://$s3_bucket_name/config/a2d2-redshift.config
 
 job_name2="a2d2-extract-meta-data-$(date +%s)"
-job_name3="a2d2-extract-bus-data-$(date +%s)"
+job_name3="a2d2-a2d2_extract_bus_data-$(date +%s)"
 job_name4="a2d2-load-data-$(date +%s)"
 
 # Create a2d2-sfn.configs 
@@ -150,11 +150,11 @@ cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
             "Environment": [
               {
                 "Name": "S3_PYTHON_SCRIPT",
-                "Value": "s3://${s3_bucket_name}/scripts/glue-etl-job.py"
+                "Value": "s3://${s3_bucket_name}/scripts/a2d2_glue_etl_job.py"
               },
               {
                 "Name": "S3_JSON_CONFIG",
-                "Value": "s3://${s3_bucket_name}/config/glue.config"
+                "Value": "s3://${s3_bucket_name}/config/a2d2-glue.config"
               }
             ] 
           },
@@ -174,11 +174,11 @@ cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
             "Environment": [
               {
                 "Name": "S3_PYTHON_SCRIPT",
-                "Value": "s3://${s3_bucket_name}/scripts/extract-bus-data.py"
+                "Value": "s3://${s3_bucket_name}/scripts/a2d2_extract_bus_data.py"
               },
               {
                 "Name": "S3_JSON_CONFIG",
-                "Value": "s3://${s3_bucket_name}/config/bus_data.config"
+                "Value": "s3://${s3_bucket_name}/config/a2d2-bus-data.config"
               },
               {
                 "Name": "S3_REQUIREMENTS_TXT",
@@ -206,7 +206,7 @@ cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
               },
               {
                 "Name": "S3_JSON_CONFIG",
-                "Value": "s3://$s3_bucket_name/config/redshift.config"
+                "Value": "s3://$s3_bucket_name/config/a2d2-redshift.config"
               },
               {
                 "Name": "S3_REQUIREMENTS_TXT",

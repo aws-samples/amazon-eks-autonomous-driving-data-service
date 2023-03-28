@@ -17,12 +17,15 @@
 # This script builds 'pythonfroms3' image with 'focal' tag 
 
 # set region
+
+[[ $# -ne 1 ]] && echo "usage: $0 tag" && exit 1
+
 region=$(aws configure get region)
   
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 image=pythonfroms3
-tag=focal
+tag=$1
 
 # Get the account number associated with the current IAM credentials
 account=$(aws sts get-caller-identity --query Account --output text)
@@ -42,7 +45,7 @@ fi
 
 # Build the docker image locally with the image name and then push it to ECR
 # with the full name.
-docker build  -t ${image} -f $DIR/Dockerfile-pythonfroms3-focal $DIR
+docker build  -t ${image} -f $DIR/Dockerfile-pythonfroms3-${tag} $DIR
 docker tag ${image} ${fullname}
 
 # Get the login command from ECR and execute it directly

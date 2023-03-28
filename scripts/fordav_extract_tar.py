@@ -16,11 +16,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 '''
 
 import os
+import random
 import tarfile
 import time
 import json
 import math
 import sys
+import re
+from typing import Any
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -48,28 +51,34 @@ class DownloadProgress(Thread):
             else:
                 last_seen = self._seen_so_far
             
-    def __call__(self, bytes_amount):
+    def __call__(self, bytes_amount: int):
         self._seen_so_far += bytes_amount
         self._perc = round((self._seen_so_far / self._size) * 100, 2)
-        if ((self._perc > 95.0) or (self._perc - self._prev) > 5):
+        if (self._perc - self._prev) > 5:
             self._prev = self._perc
             elapsed = time.time() - self._start
-            S3TarExtractor.logger.info(f'percentage completed... {self._perc} in {elapsed} secs')
+            FordavTar.logger.info(f'percentage completed... {self._perc} in {elapsed} secs')
 
-class S3TarExtractor(Process):
+class FordavTar(Process):
     # class variables
-    logger = logging.getLogger("s3-extract-tar")
+    logger = logging.getLogger("fordav-tar")
     P_CONCURRENT = 4
     FILE_CHUNK_COUNT = 20000
     GB = 1024**3
     S3_MAX_IO_QUEUE = 1000
     S3_IO_CHUNKSIZE = 262144
-    PUT_RETRY = 5
+    MAX_ATTEMPTS = 5
+    SENSOR_MAP = { 
+        "FL": "camera_front_left", 
+        "FR": "camera_front_right", 
+        "SL": "camera_side_left",
+        "SR": "camera_side_right",
+        "Center": "camera_center",
+        "RL": "camera_rear_left",
+        "RR": "camera_rear_right"
+    }
 
-    def __init__(self,
-                config=None,
-                index=None,
-                count=None):
+    def __init__(self, config: dict, index: int, count: int):
 
         Process.__init__(self)
 
@@ -77,6 +86,37 @@ class S3TarExtractor(Process):
         self.__pindex = index
         self.__pcount = count
 
+
+    @classmethod
+    def __retry(cls, attempt:int) -> int:
+        if attempt <= cls.MAX_ATTEMPTS:
+            attempt += 1
+        
+        interval = random.uniform(2**(attempt - 1), 2**attempt)
+        cls.logger.info(f"Will retry after: {interval} seconds")
+        time.sleep(interval)
+        return attempt
+
+    @classmethod
+    def __get_dest_prefix(cls, dest_prefix:str, file_path: str) -> str:
+        dest_prefix = dest_prefix[:-1] if dest_prefix.endswith("/") else dest_prefix
+        file_name = os.path.basename(file_path)
+        if re.match("Calibration-\w+.tar\.gz", file_name):
+            dest_prefix = f"{dest_prefix}/Calibration"
+        else:
+            m = re.match("(\d\d\d\d-\d\d-\d\d)-(V\d+)-(Log\d+)-(\w+)\.tar\.gz", file_name)
+            if m:
+                vehicle_id = m[2]
+                scene_id = f"{m[1]}-{m[3]}"
+                sensor_id = cls.SENSOR_MAP[m[4]]
+                dest_prefix = f"{dest_prefix}/{sensor_id}/vehicle_id={vehicle_id}/scene_id={scene_id}"
+            else:
+                m=re.match("(\d\d\d\d-\d\d-\d\d-Map\d+)\.tar\.gz",  file_name)
+                if m:
+                    dest_prefix = f"{dest_prefix}/maps/{m[1]}"
+
+        return dest_prefix
+    
     def run(self):
         file_path = self.config['file_path']
         ext = os.path.splitext(file_path)[1]
@@ -101,29 +141,29 @@ class S3TarExtractor(Process):
         files_extracted=0
 
         dest_bucket = self.config["dest_bucket"]
-        dest_prefix = self.config["dest_prefix"]
+        dest_prefix = self.__get_dest_prefix(dest_prefix=self.config["dest_prefix"], file_path=file_path)
 
         s3_client = boto3.client('s3') 
         self.logger.info(f"worker {self.__pindex}, start: {start+p_start}, end: {start+p_end}, count: {file_count}")
         for file_info in file_info_list:
-            nattempt = 0
-            while nattempt < self.PUT_RETRY:
+            attempt = 0
+            while True:
                 try:
                     file_reader = tar_file.extractfile(file_info)
                     file_key = self.__dest_key(dest_prefix, file_info.name)
                     
-                    s3_client.put_object(Body=file_reader, 
+                    s3_client.put_object(Body=file_reader.read(), 
                                 Bucket=dest_bucket, 
                                 Key = file_key)
                     file_reader.close()
                     files_extracted += 1
                     break
                 except Exception as err:
-                    self.logger.info(f"Exception: {err}")
-                    nattempt += 1
-                    time.sleep(nattempt)
-            if nattempt >= self.PUT_RETRY:
-                self.logger.info(f'worker {self.__pindex}, failed: {file_path}')
+                    self.logger.warning(f"Put object error, file: {file_info.name}, size: {file_info.size}, {err}")
+                    attempt = self.__retry(attempt=attempt)
+
+            if attempt >= self.MAX_ATTEMPTS:
+                self.logger.error(f'worker {self.__pindex}, failed: {file_path}')
                 sys.exit(1)
 
             if files_extracted % 100 == 0:
@@ -134,14 +174,14 @@ class S3TarExtractor(Process):
         self.logger.info(f"worker {self.__pindex}: files extracted: {files_extracted}: {elapsed}s")
 
     @classmethod
-    def __submit_batch_jobs(cls, config=None, total_file_count=None):
+    def __submit_batch_jobs(cls, config:dict, total_file_count:int):
 
         batch_client = boto3.client('batch')
     
         # batch jobs
         jobs=[]
     
-        s3_python_script = config['s3_python_script']
+        s3_python_script = config['tar_s3_python_script']
         s3_json_config = config['s3_json_config']
         file_path = config['file_path']
         aws_region = os.environ['AWS_DEFAULT_REGION']
@@ -199,7 +239,7 @@ class S3TarExtractor(Process):
 
     
     @classmethod
-    def __dest_key(cls, dest_prefix, member_name):
+    def __dest_key(cls, dest_prefix:str, member_name:str) -> str:
         dest_key = member_name
 
         if dest_key.startswith("./"):
@@ -209,22 +249,21 @@ class S3TarExtractor(Process):
                 
         return f'{dest_prefix}/{dest_key}'
 
-    
     @classmethod
-    def __is_tar_extracted(cls, s3_client=None, key=None, mdir=None, dest_bucket=None):
+    def __is_tar_extracted(cls, s3_client:Any, key: str, mdir: str, dest_bucket: str):
         file_name = key if key.find('/') == -1 else key.rsplit('/', 1)[1]
         file_path = os.path.join(mdir, file_name)
 
-        mkey = f"manifests/{key}"
+        mkey = f"fordav/manifests/{key}"
         with open(file_path, 'wb') as data:
             start_time = time.time()
-            cls.logger.info(f"Download mainfest, if exists: s3://{dest_bucket}/{mkey} ")
+            cls.logger.info(f"Download manifest, if exists: s3://{dest_bucket}/{mkey} ")
             config = TransferConfig()
 
             try:
                 s3_client.download_fileobj(dest_bucket, mkey, data, Config=config)
             except Exception as e:
-                cls.logger.info(f"No mainfest found: s3://{dest_bucket}/{mkey} ")
+                cls.logger.info(f"No manifest found: s3://{dest_bucket}/{mkey} ")
                 return None
             finally:
                 data.close()
@@ -236,7 +275,7 @@ class S3TarExtractor(Process):
         
 
     @classmethod
-    def __verify_manifest(cls, s3_client=None, manifest_path=None, dest_bucket=None):
+    def __verify_manifest(cls, s3_client: Any, manifest_path: str, dest_bucket: str) -> bool:
         verified = True
 
         with open(manifest_path, 'r') as manifest:
@@ -260,7 +299,7 @@ class S3TarExtractor(Process):
         return verified
 
     @classmethod
-    def __download_file(cls, s3_client=None, bucket_name=None, key=None, dir=None, mdir=None, dest_bucket=None):
+    def __download_file(cls, s3_client: Any, bucket_name: str, key: str, dir: str) -> str:
         file_name = key if key.find('/') == -1 else key.rsplit('/', 1)[1]
         file_path = os.path.join(dir, file_name)
             
@@ -292,7 +331,7 @@ class S3TarExtractor(Process):
 
 
     @classmethod
-    def extract_tar(cls, config=None):
+    def extract_tar(cls, config: dict):
 
         key = config['key']
         manifest_path = None
@@ -324,18 +363,17 @@ class S3TarExtractor(Process):
                 tar_size = s3_client.head_object(Bucket=source_bucket, Key=key).get('ContentLength')
                 if file_size == tar_size:
                     cls.logger.info(f"Skipping download: s3://{source_bucket}/{key}, file exists: {_file_path}, size:{file_size}")
+                    config['file_path'] = _file_path
                 else:
-                    config['file_path'] = cls.__download_file(s3_client=s3_client, bucket_name=source_bucket, key=key, 
-                        dir=tmp_dir, mdir=mdir, dest_bucket=dest_bucket)
+                    config['file_path'] = cls.__download_file(s3_client=s3_client, 
+                                                          bucket_name=source_bucket, 
+                                                          key=key, dir=tmp_dir)
             else:
-                config['file_path'] = cls.__download_file(s3_client=s3_client, bucket_name=source_bucket, key=key, 
-                    dir=tmp_dir, mdir=mdir, dest_bucket=dest_bucket)
+                config['file_path'] = cls.__download_file(s3_client=s3_client, 
+                                                          bucket_name=source_bucket, 
+                                                          key=key, dir=tmp_dir)
         
         file_path = config['file_path']
-        if not file_path:
-            cls.logger.info("No file to be extracted")
-            sys.exit(0)
-
         start_time = time.time()
 
         start = config['start']
@@ -349,6 +387,7 @@ class S3TarExtractor(Process):
             info_list = tar_file.getmembers()
             file_info_list = [ info for info in info_list if  info.isfile()]
             total_file_count = len(file_info_list)
+            dest_prefix = cls.__get_dest_prefix(dest_prefix=config["dest_prefix"], file_path=file_path)
 
             with open(manifest_path, "w") as manifest:
                 for file_info in file_info_list:
@@ -364,7 +403,7 @@ class S3TarExtractor(Process):
         else:
             _p_list = []
             for i in range(cls.P_CONCURRENT):
-                p = S3TarExtractor(config=config, index=i, count=cls.P_CONCURRENT)
+                p = FordavTar(config=config, index=i, count=cls.P_CONCURRENT)
                 _p_list.append(p)
                 p.start()
 
@@ -376,7 +415,7 @@ class S3TarExtractor(Process):
         if not start and not end:
             verified = cls.__verify_manifest(s3_client=s3_client, manifest_path=manifest_path, dest_bucket=dest_bucket)
             if verified:
-                manifest_key = f"manifests/{key}"
+                manifest_key = f"fordav/manifests/{key}"
                 s3_client = boto3.client('s3')
                 s3_client.upload_file(manifest_path, dest_bucket, manifest_key)
                 os.remove(manifest_path)
@@ -389,7 +428,7 @@ class S3TarExtractor(Process):
 import argparse
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Extract archive from S3 to EFS')
+    parser = argparse.ArgumentParser(description='Extract tar file')
     parser.add_argument('--config', type=str,  help='Configuration JSON file', required=True)
     parser.add_argument('--key', type=str,  default='', help='S3 key for Tar file', required=False)
     parser.add_argument('--file-path', type=str,  default='', help='File path for downloaded file', required=False)
@@ -406,5 +445,8 @@ if __name__ == "__main__":
 
     config['start'] = args.start
     config['end'] = args.end
+
+    assert config['key'] or  os.path.isfile(config['file_path'])
     
-    S3TarExtractor.extract_tar(config=config)
+    FordavTar.extract_tar(config=config)
+    sys.exit()

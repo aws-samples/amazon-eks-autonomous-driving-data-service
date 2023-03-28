@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attach-efs-fordav
+spec:
+  containers:
+  - name: attach-efs-fordav
+    image: centos
+    command: ["/bin/sh"]
+    args: ["-c", "while true; do echo $(date -u) >> /data/out.txt; sleep 5; done"]
+    volumeMounts:
+    - name: persistent-storage
+      mountPath: /efs
+  volumes:
+  - name: persistent-storage
+    persistentVolumeClaim:
+      claimName: efs-fordav

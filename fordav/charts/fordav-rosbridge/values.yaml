@@ -1,0 +1,73 @@
+global:
+  namespace: fordav 
+
+persistentVolumeClaim:
+  efs: "efs-fordav"
+  fsx: "fsx-fordav"
+
+fordav:
+  name: fordav-rosbridge 
+  image:
+    uri: 807253771232.dkr.ecr.us-west-2.amazonaws.com/mozart-noetic-focal:1.0
+    policy: Always
+  replicaCount: 2
+  maxReplicaCount: 10
+  requests:
+    memory: "72Gi"
+    cpu: "8000m"
+  metric:
+    name: "memory"
+    average: "50"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 600
+    scaleDown:
+      stabilizationWindowSeconds: 3600
+  config:
+    dir: "/etc/config"
+    path: "fordav-rosbridge.conf"
+  serviceAccount:
+    name: fordav-rosbridge-sa
+    roleArn: arn:aws:iam::807253771232:role/dearborn-EksPodServiceAccountRole-93MCLQAJ1CR2
+
+rosbridge:
+  port: 9090 
+  target_port: 9090 
+  internal: "true"
+  source_cidr: "0.0.0.0/0"
+
+configMap:
+  {
+    "database": {
+        "dbname": "mozart",
+        "host": "mozart.807253771232.us-west-2.redshift-serverless.amazonaws.com",
+        "user": "admin",
+        "password": "arn:aws:secretsmanager:us-west-2:807253771232:secret:RedshiftMasterUserPasswordS-aJUagaxPHhif-1ImIne",
+    },
+    "dynamodb": {
+      "data_request_table": "dearborn-DataRequestTable-KXBV09MF0KAF"
+    },
+     "dataset": {
+      "schema_name": "fordav",
+      "rosutil_classname": "fordav_ros_util.DatasetRosUtil"
+    },
+    "data_store": {
+        "fsx": {
+            "root": "/fsx",
+            "rosbag": "/fsx/rosbag"
+        },
+        "efs": {
+            "root": "/efs",
+            "rosbag": "/efs/rosbag"
+        },
+        "s3": {
+            "rosbag_bucket": "aws-ajayvohra-pdx-a2d2",
+            "rosbag_prefix": "rosbag/"
+        },
+        "input": "fsx"
+    },
+    "calibration": {
+      "cal_bucket": "aws-ajayvohra-pdx-a2d2",
+      "cal_key": "fordav/data/Calibration"
+    }
+  }

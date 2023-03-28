@@ -63,8 +63,8 @@ def orthonormal_bases_of_view(view):
 def origin_of_view(view):
     return view['origin']
 
-# Compute a 4 x 4 matrix that transforms homegeneous view coordinates
-# to homegeneous global coordinates
+# Compute a 4 x 4 matrix that transforms homogeneous view coordinates
+# to homogeneous global coordinates
 def transform_to_global(view):
     # get orthonormal axes of view
     x_axis, y_axis, z_axis = orthonormal_bases_of_view(view)

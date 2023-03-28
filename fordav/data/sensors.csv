@@ -1,0 +1,19 @@
+﻿camera_center,Point Grey 5 MP Dash camera
+camera_front_right,Front right Point Grey 1.3 MP camera
+camera_front_left,Front left Point Grey 1.3 MP camera
+camera_rear_left,Rear left Point Grey 1.3 MP camera
+camera_rear_right,Rear right Point Grey 1.3 MP camera
+camera_side_left,Side left Point Grey 1.3 MP camera
+camera_side_right,Side right Point Grey 1.3 MP camera
+lidar_red_pointcloud,Red HDL-32E Velodyne 3-D Lidar pointcloud
+lidar_yellow_pointcloud,Yellow HDL-32E Velodyne 3-D Lidar pointcloud
+lidar_blue_pointcloud,Blue HDL-32E Velodyne 3-D Lidar pointcloud
+lidar_green_pointcloud,Green HDL-32E Velodyne 3-D Lidar pointcloud
+"imu", IMU
+"gps", GPS
+"gps_time", GPS time reference
+"pose_raw", Raw pose_raw
+"pose_ground_truth", Ground truth 
+"pose_localized", Localized pose
+"tf", Transform
+"velocity_raw", Raw velocity_raw

@@ -1,0 +1,19 @@
+{
+	"delay": 0,
+	"servers": "<kafka broker servers>",
+	"rosutil_classname": "fordav_ros_util.DatasetRosUtil",
+	"requests": [{
+		"kafka_topic": "fordav", 
+		"vehicle_id": "V1",
+		"scene_id": "2017-07-24-Log2",
+		"sensor_id": ["camera_center", "lidar_red_pointcloud"],
+		"start_ts": 1500880547816736, 
+		"stop_ts": 1500880747816736,
+		"ros_topic": {"camera_center": "/fordav/camera_center", "lidar_red_pointcloud": "/fordav/lidar_red_pointcloud"},
+		"data_type": {"camera_center": "sensor_msgs/Image", "lidar_red_pointcloud": "sensor_msgs/PointCloud2"},
+		"step": 1000000,
+		"accept": "fsx/multipart/rosbag",
+		"lidar_view": "vehicle",
+		"preview": false
+	}]
+}
