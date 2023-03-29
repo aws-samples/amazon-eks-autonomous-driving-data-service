@@ -159,7 +159,7 @@ cat >$DIR/a2d2/config/a2d2-sfn.config <<EOL
               }
             ] 
           },
-          "RetryStrategy": {"Attempts": 1},
+          "RetryStrategy": {"Attempts": 2},
           "Timeout": {"AttemptDurationSeconds": 172800}
         },
         "Next": "A2D2ExtractMetaData"

@@ -157,7 +157,7 @@ cat >$DIR/fordav/config/fordav-sfn.config <<EOL
               }
             ] 
           },
-          "RetryStrategy": {"Attempts": 1},
+          "RetryStrategy": {"Attempts": 2},
           "Timeout": {"AttemptDurationSeconds": 172800}
         },
         "Next": "FordavDriveData"
