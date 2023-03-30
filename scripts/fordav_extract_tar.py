@@ -280,7 +280,9 @@ class FordavTar(Process):
 
         with open(manifest_path, 'r') as manifest:
             try:
+                count = 0
                 for line in manifest:
+                    count += 1
                     entry = line.split(' ', 1)
                     key = entry[0]
                     expected_size = int(entry[1])
@@ -289,6 +291,9 @@ class FordavTar(Process):
                         cls.logger.info(f"Manifest mismatch: s3://{dest_bucket}/{key}, expected: {expected_size}, actual:{actual_size}")
                         verified = False
                         break
+                    elif count % 1000 == 0:
+                        cls.logger.info(f"Verified file count: {count}")
+                cls.logger.info(f"Verified file count: {count}")
             except Exception as e:
                 verified = False
                 cls.logger.warning(f"Verify manifest error: {e}")
@@ -384,7 +389,12 @@ class FordavTar(Process):
             ext = os.path.splitext(file_path)[1]
             mode = "r:gz" if ext == ".gz" else "r:bz2" if ext == ".bz2" else "r:xz" if ext == ".xz" else "r"
             tar_file = tarfile.open(name=file_path, mode=mode)
-            info_list = tar_file.getmembers()
+            try:
+                info_list = tar_file.getmembers()
+            except Exception as _error:
+                os.remove(file_path)
+                raise _error
+                
             file_info_list = [ info for info in info_list if  info.isfile()]
             total_file_count = len(file_info_list)
             dest_prefix = cls.__get_dest_prefix(dest_prefix=config["dest_prefix"], file_path=file_path)
