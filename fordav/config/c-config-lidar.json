@@ -1,6 +1,7 @@
 {
 	"delay": 0,
 	"servers": "<kafka broker servers>",
+	"rosutil_classname": "fordav_ros_util.DatasetRosUtil",
 	"requests": [{
 		"kafka_topic": "fordav", 
 		"vehicle_id": "V3",
