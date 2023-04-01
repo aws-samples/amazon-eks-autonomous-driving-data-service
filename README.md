@@ -6,7 +6,7 @@ ADDS is a [ROS](https://www.ros.org/) based data service for replaying selected 
 
 One common reason for replaying drive data is to visualize the data. ADDS supports visualization of replayed data using any ROS visualization tool, for example [Foxglove studio](https://foxglove.dev/).
 
-ADDS is supported on [ROS 1 `noetic`](http://wiki.ros.org/noetic/Installation), and [ROS 2 `humble`](https://docs.ros.org/en/humble/index.html), and is pre-configured to use [Audi Autonomous Driving Dataset (A2D2)](https://www.a2d2.audi/a2d2/en.html). However, [ADDS can be extended](#extending-adds-to-other-datasets) to other multimodal driving datasets. 
+ADDS is supported on [ROS 1 `noetic`](http://wiki.ros.org/noetic/Installation), and [ROS 2 `humble`](https://docs.ros.org/en/humble/index.html). ADDS is pre-configured to use [Audi Autonomous Driving Dataset (A2D2)](https://www.a2d2.audi/a2d2/en.html) and [Ford Multi-AV Seasonal Dataset](https://registry.opendata.aws/ford-multi-av-seasonal/). [ADDS can be extended](#extending-adds-to-other-datasets) to other autonomous driving datasets. 
 
 In the following sections, we describe the ADDS [logical dataset design](#logical-dataset-design) and [runtime data services](#runtime-services). This is followed by a [step-by-step tutorial](#step-by-step-tutorial) for building and using ADDS with A2D2 dataset. Finally, we discuss [extending ADDS to other datasets](#extending-adds-to-other-datasets).
 
