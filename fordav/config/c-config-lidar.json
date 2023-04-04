@@ -2,33 +2,38 @@
 	"delay": 0,
 	"servers": "<kafka broker servers>",
 	"rosutil_classname": "fordav_ros_util.DatasetRosUtil",
-	"requests": [{
-		"kafka_topic": "fordav", 
-		"vehicle_id": "V3",
-		"scene_id": "2017-08-04-Log4",
-		"sensor_id": [
-			"lidar_yellow_pointcloud",
-			"lidar_red_pointcloud",
-			"lidar_blue_pointcloud",
-			"lidar_green_pointcloud"
-		],
-		"start_ts": 1501822442945970, 
-		"stop_ts": 1501822642945970,
-		"ros_topic": {
+	"requests": [
+		{
+			"kafka_topic": "fordav",
+			"vehicle_id": "V3",
+			"scene_id": "2017-08-04-Log4",
+			"sensor_id": [
+				"bus",
+				"lidar_yellow_pointcloud",
+				"lidar_red_pointcloud",
+				"lidar_blue_pointcloud",
+				"lidar_green_pointcloud"
+			],
+			"start_ts": 1501822442945970,
+			"stop_ts": 1501822642945970,
+			"ros_topic": {
+				"bus": "/fordav/bus",
 				"lidar_yellow_pointcloud": "/fordav/lidar_yellow_pointcloud",
 				"lidar_red_pointcloud": "/fordav/lidar_red_pointcloud",
 				"lidar_blue_pointcloud": "/fordav/lidar_blue_pointcloud",
 				"lidar_green_pointcloud": "/fordav/lidar_green_pointcloud"
-		},
-		"data_type": {
+			},
+			"data_type": {
+				"bus": "fordav_msgs/Bus",
 				"lidar_yellow_pointcloud": "sensor_msgs/PointCloud2",
 				"lidar_red_pointcloud": "sensor_msgs/PointCloud2",
 				"lidar_blue_pointcloud": "sensor_msgs/PointCloud2",
 				"lidar_green_pointcloud": "sensor_msgs/PointCloud2"
-		},
-		"step": 1000000,
-		"accept": "fsx/multipart/rosbag",
-		"lidar_view": "vehicle",
-		"preview": false 
-	}]
+			},
+			"step": 1000000,
+			"accept": "fsx/multipart/rosbag",
+			"lidar_view": "vehicle",
+			"preview": true
+		}
+	]
 }
