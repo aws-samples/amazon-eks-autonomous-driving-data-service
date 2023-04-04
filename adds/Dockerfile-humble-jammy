@@ -61,4 +61,4 @@ RUN cd /colcon_ws &&  colcon build
 
 ENV AMENT_PREFIX_PATH=/colcon_ws/install/a2d2_msgs:/colcon_ws/install/fordav_msgs:${AMENT_PREFIX_PATH}
 ENV PYTHONPATH=/colcon_ws/install/a2d2_msgs/local/lib/python3.10/dist-packages:/colcon_ws/install/fordav_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH}
-ENV LD_LIBRARY_PATH=/colcon_ws/install/a2d2_msgs/lib:${LD_LIBRARY_PATH}
+ENV LD_LIBRARY_PATH=/colcon_ws/install/a2d2_msgs/lib:/colcon_ws/install/fordav_msgs/lib:${LD_LIBRARY_PATH}
