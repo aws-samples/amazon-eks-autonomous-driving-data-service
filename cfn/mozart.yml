@@ -291,46 +291,46 @@ Conditions:
 Mappings:
   noetic:
     us-east-1:
-      AMI: ami-0a17d0365ef5d422d
+      AMI: ami-007ccac74cc85cb43
     us-east-2:
-      AMI: ami-0a4494b17b69602f4
+      AMI: ami-099e81f8d52ddb352
     us-west-2:
-      AMI: ami-0f524b166318e7aa1
+      AMI: ami-0f48fa756eb8ae717
     eu-west-1:
-      AMI: ami-05e416df3bedba9ca
+      AMI: ami-06e7d4ed8752ea1a1
     eu-central-1:
-      AMI: ami-008a87d3221779b3e
+      AMI: ami-0ebdbdc3009d263a1
     ap-southeast-1:
-      AMI: ami-0249d750e1c505a12
+      AMI: ami-09b43c6a9d2db239d
     ap-southeast-2:
-      AMI: ami-0ecfd426190f12b2c
+      AMI: ami-093ee8ca5cccbd9dd
     ap-south-1:
-      AMI: ami-04eb7f53d56b0b59d
+      AMI: ami-0c281c09ef103f5c3
     ap-northeast-1:
-      AMI: ami-0b6655cd74090dea9
+      AMI: ami-0734a013c43b8d8a2
     ap-northeast-2:
-      AMI: ami-0ef41a3279682ff5e
+      AMI: ami-08accefb19e265cff
   humble:
     us-east-1:
-      AMI: ami-0849d760c131d2ae7
+      AMI: ami-072755cb2af0b2c13
     us-east-2:
-      AMI: ami-0de19b31027aa3556
+      AMI: ami-01a3123d0e7829c54
     us-west-2:
-      AMI: ami-0a025cd581aa80623
+      AMI: ami-02ecfea07453e311e
     eu-west-1:
-      AMI: ami-06d076a224fc9d4cf
+      AMI: ami-0ab1412ff270d506a
     eu-central-1:
-      AMI: ami-0f012ece49d117358
+      AMI: ami-06de26b0113440e5e
     ap-southeast-1:
-      AMI: ami-0877ab34f6e8ed25d
+      AMI: ami-06aa28baff54cc6c6
     ap-southeast-2:
-      AMI: ami-01b41e8d3dc06ee9e
+      AMI: ami-018c717da05ea192a
     ap-south-1:
-      AMI: ami-01007eef7010318b6
+      AMI: ami-03039714a69449cd3
     ap-northeast-1:
-      AMI: ami-0cb1490955e291a4a
+      AMI: ami-09e362d8226e42c1a
     ap-northeast-2:
-      AMI: ami-07b1dbd222ca38f4a
+      AMI: ami-02c262c46f2c3817e
 
 Resources:
   Vpc:
