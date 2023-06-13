@@ -154,14 +154,14 @@ Parameters:
   KubernetesVersion:
     Description: Kubernetes Version
     Type: String
-    AllowedValues: [ "1.23" ]
-    Default: "1.23"
+    AllowedValues: [ "1.27" ]
+    Default: "1.27"
 
   KubectlVersion:
     Description: Kubectl Version
     Type: String
-    AllowedValues: [ "1.23.7/2022-06-29" ]
-    Default: "1.23.7/2022-06-29"
+    AllowedValues: [ "1.27.1/2023-04-19" ]
+    Default: "1.27.1/2023-04-19"
   
   EKSNodeVolumeSizeGiB:
     Description: EKS Node volume size GiB
