@@ -29,7 +29,7 @@ EOL
 kubectl patch ServiceAccount cluster-autoscaler -n kube-system --patch "$(cat cluster-autoscaler-serviceaccount-patch.json)" 
   
 cat >cluster-autoscaler-deployment-patch.json <<EOL
-{"spec": { "template": { "metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict": "false"}}, "spec": { "containers": [{ "image": "k8s.gcr.io/autoscaling/cluster-autoscaler:${cluster_autoscaler_image_tag}", "name": "cluster-autoscaler", "resources": { "requests": {"cpu": "100m", "memory": "300Mi"}}, "command": [ "./cluster-autoscaler", "--v=4", "--stderrthreshold=info", "--cloud-provider=aws", "--skip-nodes-with-local-storage=false", "--expander=least-waste", "--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${eks_cluster_name}", "--balance-similar-node-groups", "--skip-nodes-with-system-pods=false" ]}]}}}}
+{"spec": { "template": { "metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict": "false"}}, "spec": { "containers": [{ "image": "registry.k8s.io/autoscaling/cluster-autoscaler:${cluster_autoscaler_image_tag}", "name": "cluster-autoscaler", "resources": { "requests": {"cpu": "100m", "memory": "300Mi"}}, "command": [ "./cluster-autoscaler", "--v=4", "--stderrthreshold=info", "--cloud-provider=aws", "--skip-nodes-with-local-storage=false", "--expander=least-waste", "--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/${eks_cluster_name}", "--balance-similar-node-groups", "--skip-nodes-with-system-pods=false" ]}]}}}}
 EOL
 
 kubectl -n kube-system patch deployment cluster-autoscaler --patch "$(cat  cluster-autoscaler-deployment-patch.json)"
