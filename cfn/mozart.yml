@@ -154,14 +154,14 @@ Parameters:
   KubernetesVersion:
     Description: Kubernetes Version
     Type: String
-    AllowedValues: [ "1.27" ]
-    Default: "1.27"
+    AllowedValues: [ "1.28" ]
+    Default: "1.28"
 
   KubectlVersion:
     Description: Kubectl Version
     Type: String
-    AllowedValues: [ "1.27.1/2023-04-19" ]
-    Default: "1.27.1/2023-04-19"
+    AllowedValues: [ "1.28.3/2023-11-14" ]
+    Default: "1.28.3/2023-11-14"
   
   EKSNodeVolumeSizeGiB:
     Description: EKS Node volume size GiB
@@ -172,8 +172,8 @@ Parameters:
   EKSNodeGroupMinSize:
     Description: EKS Node group minimum size
     Type: Number
-    MinValue: 1
-    Default: 1
+    MinValue: 0
+    Default: 0
   
   EKSNodeGroupMaxSize:
     Description: EKS Node group maximum size
@@ -184,8 +184,8 @@ Parameters:
   EKSNodeGroupDesiredSize:
     Description: EKS Node group desired size
     Type: Number
-    MinValue: 1
-    Default: 2
+    MinValue: 0
+    Default: 0
 
   EKSNodeGroupInstanceType:
     Description: EKS Node group instance type
@@ -291,46 +291,46 @@ Conditions:
 Mappings:
   noetic:
     us-east-1:
-      AMI: ami-007ccac74cc85cb43
+      AMI: ami-0c7167c7f19b42827
     us-east-2:
-      AMI: ami-099e81f8d52ddb352
+      AMI: ami-0cb8bd12ae00545d8
     us-west-2:
-      AMI: ami-0f48fa756eb8ae717
+      AMI: ami-08a6c204633ef5cee
     eu-west-1:
-      AMI: ami-06e7d4ed8752ea1a1
+      AMI: ami-0adab63e5043085d1
     eu-central-1:
-      AMI: ami-0ebdbdc3009d263a1
+      AMI: ami-0a7314af79e1386c7
     ap-southeast-1:
-      AMI: ami-09b43c6a9d2db239d
+      AMI: ami-0b489de3fab3a7e3b
     ap-southeast-2:
-      AMI: ami-093ee8ca5cccbd9dd
+      AMI: ami-03a8bb8234272744b
     ap-south-1:
-      AMI: ami-0c281c09ef103f5c3
+      AMI: ami-009c3d26336b8d5c4
     ap-northeast-1:
-      AMI: ami-0734a013c43b8d8a2
+      AMI: ami-0df434ac8f8cdeb9f
     ap-northeast-2:
-      AMI: ami-08accefb19e265cff
+      AMI: ami-02acd68454c0247e4
   humble:
     us-east-1:
-      AMI: ami-072755cb2af0b2c13
+      MI: ami-0be745ab75ba5e45c
     us-east-2:
-      AMI: ami-01a3123d0e7829c54
+      AMI: ami-0ddb5a74386eb6091
     us-west-2:
-      AMI: ami-02ecfea07453e311e
+      AMI: ami-02663e342a0103113
     eu-west-1:
-      AMI: ami-0ab1412ff270d506a
+      AMI: ami-005e674520b068aa7
     eu-central-1:
-      AMI: ami-06de26b0113440e5e
+      AMI: ami-089da6dd4ed5bda02
     ap-southeast-1:
-      AMI: ami-06aa28baff54cc6c6
+      AMI: ami-01a6dc4321ec7ed82
     ap-southeast-2:
-      AMI: ami-018c717da05ea192a
+      AMI: ami-0bb771f2707180183
     ap-south-1:
-      AMI: ami-03039714a69449cd3
+      AMI: ami-00496052d86ee5074
     ap-northeast-1:
-      AMI: ami-09e362d8226e42c1a
+      AMI: ami-0bb96692b64ca68a5
     ap-northeast-2:
-      AMI: ami-02c262c46f2c3817e
+      AMI: ami-0fd493d879fea4208
 
 Resources:
   Vpc:
@@ -1143,6 +1143,30 @@ Resources:
                   - "dynamodb:*"
                 Resource:
                   - !GetAtt DataRequestTable.Arn
+
+
+  EKSNodeGroupSystem:
+    Type: AWS::EKS::Nodegroup
+    Properties: 
+      AmiType: "AL2_x86_64"
+      ClusterName: !Ref EksControlPlane
+      DiskSize: 40
+      InstanceTypes: 
+      - m5a.large
+      NodegroupName: 'system-nodegroup'
+      NodeRole: !GetAtt EksNodeRole.Arn
+      RemoteAccess:
+        Ec2SshKey: !Ref KeyPairName
+      ScalingConfig: 
+          DesiredSize: 2
+          MaxSize: 2
+          MinSize: 2
+      Labels:
+        nodegroup: 'system-nodegroup'
+      Subnets: 
+      - Ref: PrivateSubnet1
+      - Ref: PrivateSubnet2
+      - Ref: PrivateSubnet3
 
   EKSNodeGroupPrivate:
     Type: AWS::EKS::Nodegroup
@@ -2126,8 +2150,7 @@ Resources:
         Fn::Base64: 
           'Fn::Join':
           - ''
-          - - !Sub
-              |
+          - - |
               Content-Type: multipart/mixed; boundary="//"
               MIME-Version: 1.0
 
@@ -2149,49 +2172,61 @@ Resources:
 
               #!/bin/bash -xe
               echo "Cloud init in progress!" > /etc/motd
-             
-              # Find Ubuntu Version 
-              VERSION=$(lsb_release -a | grep Release | awk -F ":" '{print $2}' | sed -E -e 's/[[:blank:]]+//g')
-              echo "Detected Ubuntu $VERSION"
+              . /etc/os-release
 
+              distro=ubuntu${VERSION_ID//[.]/""}
+              arch="x86_64"
+              echo "Ubuntu  $distro/$arch"
+             
               # setup graphics desktop
               export DEBIAN_FRONTEND=noninteractive
               export DEBCONF_NONINTERACTIVE_SEEN=true
 
+              dpkg -l | grep linux | awk -F' ' '{print $2}' > /tmp/dpkg.out
+              for pkg in `cat /tmp/dpkg.out`; do apt-mark hold $pkg; done
+
+              CUDA=11.8
+              CUDA_DASH=11-8
+
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
-              [[ "${DesktopType}" == "Graphical" ]] && \
               [[ ! -z $(lspci -v | grep NVIDIA) ]] && \
               [[ ! -x "$(command -v nvidia-smi)" ]] && \
-                apt-get -y install linux-headers-$(uname -r) && \
-                ( ( [[ $VERSION == "20.04" ]] && \
-                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
-                    mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub && \
-                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" ) || \
-                  ( [[ $VERSION == "22.04" ]] && \
-                    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin && \
-                    mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-                    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub && \
-                    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /" ) ) && \
-                apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y autoremove && \
-                apt-get -y install cuda-11-8 && \
-                apt-get -y install libcudnn8=8.6.0.163-1+cuda11.8 && \
-                apt-get -y install libcudnn8-dev=8.6.0.163-1+cuda11.8 && \
-                echo "export PATH=/usr/local/cuda-11.8/bin:$PATH" >> /home/ubuntu/.bashrc && \
-                echo "export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH" >> /home/ubuntu/.bashrc && \
-                reboot
+              apt-get -y install linux-headers-$(uname -r) && \
+              wget https://developer.download.nvidia.com/compute/cuda/repos/$distro/$arch/cuda-keyring_1.0-1_all.deb && \
+              dpkg -i cuda-keyring_1.0-1_all.deb && \
+              apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y purge libnvidia-* && apt-get -y autoremove && \
+              apt-get -y install cuda-${CUDA_DASH} && \
+              echo "export PATH=/usr/local/cuda-${CUDA}/bin:$PATH" >> /home/ubuntu/.bashrc && \
+              CUDA_COMPAT=$(nvidia-smi | grep CUDA | awk '{print $(NF - 1)}') && \
+              CUDA_COMPAT_DASH="${CUDA_COMPAT//\./-}" && \
+              apt-get -y install cuda-compat-${CUDA_COMPAT_DASH} && \
+              echo "export LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_COMPAT}/compat:/usr/local/cuda-${CUDA}/lib64:$LD_LIBRARY_PATH" >> /home/ubuntu/.bashrc && \
+              reboot
 
+            - !Sub
+              |
               # setup software repo for docker
-              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-              apt-key fingerprint 0EBFCD88
-              add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-   
-              # add key for fsx-lustre client
-              wget -O - https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-ubuntu-public-key.asc | apt-key add -
+              wget -qO - https://download.docker.com/linux/ubuntu/gpg > ./GPG_DOCKER.PUB
+              gpg --no-default-keyring --keyring ./docker_keyring.gpg --import  ./GPG_DOCKER.PUB
+              gpg --no-default-keyring --keyring ./docker_keyring.gpg  --export > ./docker.gpg
+              mv ./docker.gpg /etc/apt/trusted.gpg.d/
+              rm ./GPG_DOCKER.PUB
               
+              add-apt-repository -y  "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+   
+              # setup software repo for fsx-lustre client
+              wget -qO - https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-ubuntu-public-key.asc > ./fsx-ubuntu-public-key.asc
+              gpg --no-default-keyring --keyring ./fsx_keyring.gpg --import  ./fsx-ubuntu-public-key.asc
+              gpg --no-default-keyring --keyring ./fsx_keyring.gpg  --export > ./fsx.gpg
+              mv ./fsx.gpg /etc/apt/trusted.gpg.d/
+              rm ./fsx-ubuntu-public-key.asc
+
               # add key for NICE-DCV
-              wget https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY
-              gpg --import NICE-GPG-KEY
+              wget -qO - https://d1uj6qtbmh3dt5.cloudfront.net/NICE-GPG-KEY > ./NICE-GPG-KEY
+              gpg --no-default-keyring --keyring ./nice_dcv_keyring.gpg --import  ./NICE-GPG-KEY
+              gpg --no-default-keyring --keyring ./nice_dcv_keyring.gpg  --export > ./nice_dcv.gpg
+              mv ./nice_dcv.gpg /etc/apt/trusted.gpg.d/
+              rm ./NICE-GPG-KEY
 
               # update and install required packages
               apt-get update
@@ -2201,14 +2236,19 @@ Resources:
               
               # install docker if it is not installed
               if [ ! -x "$(command -v docker)" ]; then
-                apt-get install -y docker-ce docker-ce-cli containerd.io      
+                apt-get -y install docker-ce docker-ce-cli containerd.io      
                 usermod -aG docker ubuntu
 
                 # install nvidia container toolkit if we have a nvidia GPU
                 if [[ -x "$(command -v nvidia-smi)" ]]
                 then
-                  curl -s -L https://nvidia.github.io/nvidia-container-runtime/gpgkey |  apt-key add -
-                  distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+                  wget -qO - https://nvidia.github.io/nvidia-container-runtime/gpgkey > ./gpg_nvidia_container_runtime.pub
+                  gpg --no-default-keyring --keyring ./nvidia_container_runtime_keyring.gpg --import  ./gpg_nvidia_container_runtime.pub
+                  gpg --no-default-keyring --keyring ./nvidia_container_runtime_keyring.gpg --export >  ./nvidia_container_runtime.gpg
+                  mv ./nvidia_container_runtime.gpg /etc/apt/trusted.gpg.d/
+                  rm ./gpg_nvidia_container_runtime.pub
+
+                  distribution=$ID$VERSION_ID
                   curl -s -L https://nvidia.github.io/nvidia-container-runtime/$distribution/nvidia-container-runtime.list | \
                     tee /etc/apt/sources.list.d/nvidia-container-runtime.list
                   apt-get update
@@ -2229,7 +2269,7 @@ Resources:
               fi
 
               ROS=${RosVersion}
-              if [[ $VERSION == "20.04" ]]
+              if [[ $VERSION_ID == "20.04" ]]
               then
                 [[ $ROS != 'noetic' ]] && echo "RosVersion must be 'noetic' for Ubuntu $VERSION" && exit 1
                 bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
@@ -2266,7 +2306,7 @@ Resources:
                   reboot
                 fi
 
-              elif [[ $VERSION == "22.04" ]]
+              elif [[ $VERSION_ID == "22.04" ]]
               then   
                 [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
                 bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu jammy main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
@@ -2304,7 +2344,7 @@ Resources:
                 fi
 
               else
-                echo "Ubuntu $VERSION is not supported; must be one of 20.04, or 22.04"
+                echo "Ubuntu $VERSION_ID is not supported; must be one of 20.04, or 22.04"
                 exit 1
               fi
 

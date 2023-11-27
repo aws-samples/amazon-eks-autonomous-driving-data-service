@@ -222,7 +222,6 @@ This tutorial assumes you have an [AWS Account](https://aws.amazon.com/account/)
 To get started:
 
 * Select your [AWS Region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html). The AWS Regions supported by this project include, us-east-1, us-east-2, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2, and ap-south-1. The [A2D2](https://registry.opendata.aws/aev-a2d2/) dataset used in this tutorial is stored in  `eu-central-1`.
-* Subscribe to [Ubuntu Pro 22.04 LTS](https://aws.amazon.com/marketplace/pp/prodview-uy7jg4dds3qjw) and [Ubuntu Pro 20.04 LTS](https://aws.amazon.com/marketplace/pp/prodview-zvdilnwnuopoo).
 * If you do not already have an Amazon EC2 key pair, [create a new Amazon EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#prepare-key-pair). You need the key pair name to specify the `KeyName` parameter when creating the AWS CloudFormation stack below. 
 * You need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the selected AWS region. You  use the S3 bucket name to specify the `S3Bucket` parameter in the stack. The bucket is used to store the [A2D2](https://www.a2d2.audi/a2d2/en.html) data.
 * Use the [public internet address](http://checkip.amazonaws.com/) of your laptop as the base value for the [CIDR](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html) to specify `DesktopRemoteAccessCIDR` parameter in the CloudFormation stack you create below.  
@@ -343,7 +342,7 @@ In the `rviz` tool, use **File>Open Config** to select  `/home/ubuntu/amazon-eks
   
 To run the Kafka data client with an example data request, execute the following command in the *working directory*:
 
-		python ./a2d2/src/data_client --config ./a2d2/config/c-config-ex1.json
+		python ./a2d2/src/data_client.py --config ./a2d2/config/c-config-ex1.json
 
 After a brief delay, you should be able to *preview* the response data in the `rviz` tool.
 
