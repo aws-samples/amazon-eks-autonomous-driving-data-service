@@ -1,0 +1,134 @@
+{
+  "configById": {
+    "Publish!egpt2p": {
+      "buttonText": "Publish",
+      "buttonTooltip": "",
+      "advancedView": true,
+      "value": "{\n    \"data\": \"{\\\"vehicle_id\\\": \\\"a2d2\\\", \\\"scene_id\\\": \\\"20190401145936\\\", \\\"sensor_id\\\": [\\\"bus\\\", \\\"lidar/front_left\\\", \\\"camera/front_left\\\"], \\\"start_ts\\\": 1554121593909500, \\\"stop_ts\\\": 1554121693909500, \\\"ros_topic\\\": {\\\"bus\\\": \\\"/a2d2/bus\\\", \\\"lidar/front_left\\\": \\\"/a2d2/lidar/front_left\\\", \\\"camera/front_left\\\": \\\"/a2d2/camera/front_left\\\"}, \\\"data_type\\\": {\\\"bus\\\": \\\"a2d2_msgs/Bus\\\", \\\"lidar/front_left\\\": \\\"sensor_msgs/PointCloud2\\\", \\\"camera/front_left\\\": \\\"sensor_msgs/Image\\\"}, \\\"step\\\": 1000000, \\\"accept\\\": \\\"rosmsg\\\", \\\"preview\\\": false }\"\n}",
+      "topicName": "/mozart/data_request",
+      "datatype": "std_msgs/msg/String"
+    },
+    "RawMessages!2j9icwi": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/mozart/data_response"
+    },
+    "Image!367wizq": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/a2d2/camera/front_left"
+      }
+    },
+    "3D!rup9m5": {
+      "cameraState": {
+        "distance": 19.999999999999634,
+        "perspective": true,
+        "phi": 59.999999999999865,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          1.697248430951136,
+          -1.1786447437161205,
+          -1.6655231012183358e-17
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45.00000000000006,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-none",
+      "scene": {},
+      "transforms": {},
+      "topics": {
+        "/a2d2/lidar/front_left": {
+          "colorMode": "colormap",
+          "visible": true,
+          "colorField": "z",
+          "colorMap": "turbo"
+        },
+        "/a2d2/camera/front_left": {
+          "visible": false
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {}
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": {
+      "first": "Publish!egpt2p",
+      "second": "RawMessages!2j9icwi",
+      "direction": "row"
+    },
+    "second": {
+      "first": "Image!367wizq",
+      "second": "3D!rup9m5",
+      "direction": "row"
+    },
+    "direction": "column",
+    "splitPercentage": 30
+  }
+}
