@@ -177,7 +177,7 @@ The data client for Kafka data service is a standalone [Python application](adds
 
 The data service runtime uses [Amazon Elastic Kubernetes Service (EKS)](https://aws.amazon.com/eks/).  Raw sensor data store and ROS bag store can be configured to use [Amazon S3](https://aws.amazon.com/s3/), [Amazon FSx for Lustre](https://aws.amazon.com/fsx/), or [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Raw data manifest store uses [Amazon Redshift Serverless](https://aws.amazon.com/redshift/redshift-serverless/). The data processing workflow for building and loading the raw data manifest uses [AWS Batch](https://aws.amazon.com/batch/) with [Amazon Fargate](https://aws.amazon.com/fargate/), [AWS Step Functions](https://aws.amazon.com/step-functions/), and [Amazon Glue](https://aws.amazon.com/glue/). [Amazon Managed Streaming for Apache Kafka (MSK)](https://aws.amazon.com/msk/) provides the communication channel for the Kafka data service. 
 
-While the tutorial below walks-through both the Kafka data service and the Rosbridge service, you may choose to disable the Kafka data service, and only use the Rosbridge service, because the Rosbridge service feature set is a super set of the Kafka data service.
+The tutorial below walks-through the Rosbridge service, and, optionally, the Kafka service. The Rosbridge service feature set is a super set of the Kafka service.
 
 ### Data request for sensor data
 
@@ -211,10 +211,13 @@ In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi
 1. [Prerequisites](#prerequisites)
 2. [Configure data service](#configure-data-service)
 3. [Build dataset](#build-dataset)
-4. [Run Kafka data service](#run-kafka-data-service)
-5. [Run Kafka data client](#run-kafka-data-client)
-6. [Run Rosbridge data service](#run-rosbridge-data-service)
-7. [Run Rosbridge data client](#run-rosbridge-data-client)
+4. [Run Rosbridge data service](#run-rosbridge-data-service)
+5. [Run Rosbridge data client](#run-rosbridge-data-client)
+
+You may optionally run Kafka service:
+
+6. [Run Kafka data service](#run-kafka-data-service)
+7. [Run Kafka data client](#run-kafka-data-client)
 
 ### Prerequisites
 This tutorial assumes you have an [AWS Account](https://aws.amazon.com/account/), and you have [system administrator job function](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_job-functions.html) access to the AWS Management Console.
@@ -223,7 +226,7 @@ To get started:
 
 * Select your [AWS Region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html). The AWS Regions supported by this project include, us-east-1, us-east-2, us-west-2, eu-west-1, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2, and ap-south-1. The [A2D2](https://registry.opendata.aws/aev-a2d2/) dataset used in this tutorial is stored in  `eu-central-1`.
 * If you do not already have an Amazon EC2 key pair, [create a new Amazon EC2 key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#prepare-key-pair). You need the key pair name to specify the `KeyName` parameter when creating the AWS CloudFormation stack below. 
-* You need an [Amazon S3](https://aws.amazon.com/s3/) bucket. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the selected AWS region. You  use the S3 bucket name to specify the `S3Bucket` parameter in the stack. The bucket is used to store the [A2D2](https://www.a2d2.audi/a2d2/en.html) data.
+* You need an [Amazon S3](https://aws.amazon.com/s3/) bucket in your selected AWS region. If you don't have one, [create a new Amazon S3 bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) in the selected AWS region. You  use the S3 bucket name to specify the `S3Bucket` parameter in the stack. The bucket is used to store the [A2D2](https://www.a2d2.audi/a2d2/en.html) data.
 * Use the [public internet address](http://checkip.amazonaws.com/) of your laptop as the base value for the [CIDR](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html) to specify `DesktopRemoteAccessCIDR` parameter in the CloudFormation stack you create below.  
 * For all passwords used in this tutorial, we recommend using *strong* passwords using the best-practices recommended for [AWS root account user password](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_change-root.html).
 
@@ -250,11 +253,14 @@ For all other stack input parameters, default values are recommended during firs
 The key resources in the CloudFormation stack are listed below:
 
 * A ROS desktop EC2 instance (default type `g4dn.xlarge`)
-* An Amazon EKS cluster with 2 [managed node group](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html) nodes (default type `m5n.8xlarge`)
-* An Amazon [MSK](https://aws.amazon.com/msk/) cluster with 3 broker nodes (default type `kafka.m5.large`)
+* An Amazon EKS cluster with 2 [managed node groups](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html): `system-nodegroup`, and `work-nodegroup`. Both maanged node groups auto-scale as needed.
 * Amazon [Redshift Serverless](https://aws.amazon.com/redshift/redshift-serverless/) workgroup and namespace
-* An Amazon [Fsx for Lustre](https://aws.amazon.com/fsx/lustre/) file system (default size 7,200  GiB)
 * An Amazon [EFS](https://aws.amazon.com/efs/) file system
+
+If you choose to run the optional Kafka data service and client, following additional resources are created:
+
+* An Amazon [MSK](https://aws.amazon.com/msk/) cluster with 3 broker nodes (default type `kafka.m5.large`)
+* An Amazon [Fsx for Lustre](https://aws.amazon.com/fsx/lustre/) file system (default size 7,200  GiB)
 
 #### Connect to the graphics desktop using SSH
 
@@ -271,122 +277,68 @@ Now you are ready to proceed with the following steps. For all the commands in t
 
 #### Configure EKS cluster access
 
-In this step, you need [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html) for *programmatic* access for the IAM user, or role, you used to create the AWS CloudFormation stack above. You must not use the AWS credentials for a different IAM user, or role. The AWS credentials are used one-time to enable EKS cluster access from the ROS desktop, and are *automatically* *removed* at the end of this step. 
+In this step, you will be prompted for [AWS credentials](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html) for the **IAM user** you used to create the AWS CloudFormation stack, above. If you instead used an **IAM role** to create the stack, you must first manually [setup the AWS credentials](https://docs.aws.amazon.com/sdk-for-java/v1/developer-guide/setup-credentials.html) in the `~/.aws/credentials` file with the following fields:
 
-If you used an IAM role to create the CloudFormation stack above, you must manually [setup the AWS credentials](https://docs.aws.amazon.com/sdk-for-java/v1/developer-guide/setup-credentials.html) associated with the IAM role in the `~/.aws/credentials` file with the following fields:
-		
-		[default]
-		aws_access_key_id=
-		aws_secret_access_key=
-		aws_session_token=
 
-If you used an IAM user to create the stack, you do not have to manually configure the credentials in `~/.aws/credentials` file. 
+	[default]
+	aws_access_key_id=
+	aws_secret_access_key=
+	aws_session_token=
 
-In the *working directory*, run the command:
 
-		./scripts/configure-eks-auth.sh
+The AWS credentials are used one-time to enable EKS cluster access from the ROS desktop, and are *automatically* *removed* at the end of this step. After setting up the credentials, in the *working directory*, run the command:
+
+	./scripts/configure-eks-auth.sh
 
 At the successful execution of this command, you *must* see `AWS Credentials Removed`.
 
-#### Setup EKS cluster environment
+#### Setup developer environment
 
-To setup the eks cluster environment, in the *working directory*, run the command:
+To setup the developer environment, in the *working directory*, run the command:
 
-		./scripts/setup-dev.sh
+	./scripts/setup-dev.sh
 
 This step also builds and pushes the data service container image into [Amazon ECR](https://aws.amazon.com/ecr/).
 
 ### Build dataset
 
-In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) dataset. This dataset is stored in compressed TAR format in `aev-autonomous-driving-dataset` S3 bucket in `eu-central-1`. We need to extract the A2D2 dataset into the S3 bucket for your stack, build the raw data manifest, and load the manifest into the raw data manifest store. To execute these steps, we use an [AWS Step Functions](https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html) state machine. To run the AWS Step Functions state machine, execute the following command in the *working directory*:
+In this tutorial, we use [A2D2 autonomous driving dataset](https://www.a2d2.audi/a2d2/en.html) dataset. This dataset is stored in compressed TAR format in `aev-autonomous-driving-dataset` S3 bucket in `eu-central-1`. We need to extract the A2D2 dataset into the S3 bucket for your stack, build the raw data manifest, and load the manifest into the raw data manifest store. To execute these steps, we use an [AWS Step Functions](https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html) state machine. To run the AWS Step Functions state machine, run the following command in the *working directory*:
 
-		./scripts/a2d2-etl-steps.sh
+	./scripts/a2d2-etl-steps.sh
 
-If you have already run this script before in another CloudFormation stack that uses the same Amazon S3 bucket as your current stack, you can  skip the extraction of raw A2D2 dataset by running the following alternate command:
+The time to complete this step depends on many variable factors, including the choice of your AWS region, and may take anywhere from 12 - 24 hours, or possibly longer.  The AWS Region `eu-central-1` takes the least amount of time for this step because the A2D2 data set is located in this region. 
 
-		./scripts/a2d2-etl-steps-skip-raw.sh
+**Note:** If you have already run `./scripts/a2d2-etl-steps.sh` before in another CloudFormation stack that uses the same Amazon S3 bucket as your current stack, you can complete this step in less than 30 minutes by running the following script, instead:
+
+	./scripts/a2d2-etl-steps-skip-raw.sh
 		
 Note the `executionArn` of the state machine execution in the output of the previous command. To check the status the status of the execution, use following command, replacing `executionArn` below with your value:
 
-		aws stepfunctions describe-execution --execution-arn executionArn
+	aws stepfunctions describe-execution --execution-arn executionArn
 
-The time for this step depends on many variable factors, including the choice of your AWS region, and may take anywhere from 12 - 24 hours, or possibly longer.  The AWS Region `eu-central-1` takes the least amount of time for this step because the A2D2 data set is located in this region. 
 
-### Run Kafka data service
-
-The `a2d2-data-service` uses Kafka and is deployed using an [Helm Chart](https://helm.sh/docs/topics/charts/). To deploy the `a2d2-data-service`, execute the following command in the *working directory*:
-
-		helm install --debug a2d2-data-service ./a2d2/charts/a2d2-data-service/
-
-To verify that the `a2d2-data-service` deployment is running, execute the command:
-
-		kubectl get pods -n a2d2
-
-The data service can be configured to use S3, FSx for Lustre, or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ) as the raw sensor data store. The default raw data store is `fsx`, if FSx for Lustre is enabled (see [`FSxForLustre`](#InputParams) parameter), else it is `s3`.
-
-Below is the Helm chart configuration for various raw data store options, with recommended Kubernetes resource requests for pod `memory` and `cpu`. This configuration is used in [`a2d2/charts/a2d2-data-service/values.yaml`](a2d2/charts/a2d2-data-service/values.yaml):
-
- Data source input | `values.yaml` Configuration |
-| --- | ----------- |
-| `fsx` (default) | `a2d2.requests.memory: "72Gi"` <br> `a2d2.requests.cpu: "8000m"` <br> `configMap.data_store.input: "fsx"`|
-| `efs`  | `a2d2.requests.memory: "32Gi"` <br> `a2d2.requests.cpu: "1000m"` <br> `configMap.data_store.input: "efs"`|
-| `s3`  | `a2d2.requests.memory: "8Gi"` <br> `a2d2.requests.cpu: "1000m"` <br> `configMap.data_store.input: "s3"`|
-
-For matching data staging options in data client request, see `request.accept` field in [data request fields](#RequestFields). 
-
-### Run Kafka data client
-
-To visualize the response data, we use [rviz](http://wiki.ros.org/rviz) tool on the graphics desktop. Open a terminal on the desktop, and run `rviz` (`rviz2` for ROS 2). 
-
-In the `rviz` tool, use **File>Open Config** to select  `/home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/config/a2d2.rviz` (`.../rviz2/a2d2.rviz` for ROS 2) as the `rviz` configuration. You should see `rviz` tool configured with two windows for visualizing response data: image data on the left, and point cloud data on the right. This `rviz` configuration is specific to the examples we run below.
-  
-To run the Kafka data client with an example data request, execute the following command in the *working directory*:
-
-		python ./a2d2/src/data_client.py --config ./a2d2/config/c-config-ex1.json
-
-After a brief delay, you should be able to *preview* the response data in the `rviz` tool.
-
-To *preview* data from a different drive scene, execute:
-
-		python ./a2d2/src/data_client.py --config ./a2d2/config/c-config-ex2.json 
-
- You can set `"preview": false` in the data client config files, and run the above commands again to view the complete response. 
-
- The data client exits automatically at the end of each successful run. You can use CTRL+C to exit the data client manaually.
-
- When you are done with the Kafka data service, stop it by executing the command:
-
-		helm delete a2d2-data-service
 
 ### Run Rosbridge data service
 
-To deploy the `a2d2-rosbridge` data service, execute the following command in the *working directory*:
+To deploy the `a2d2-rosbridge` data service, run the following command in the *working directory*:
 
-		helm install --debug a2d2-rosbridge ./a2d2/charts/a2d2-rosbridge/
+	helm install --debug a2d2-rosbridge ./a2d2/charts/a2d2-rosbridge/
 
-To verify that the `a2d2-rosbridge` deployment is running, execute the command:
+To verify that the `a2d2-rosbridge` deployment is running, run the command:
 
-		kubectl get pods -n a2d2
+	kubectl get pods -n a2d2
 
-This service provides a `Kubernetes service` for data client connection. To find the DNS endpoint for the service, execute the command:
+This service provides a `Kubernetes service` for data client connection. To find the DNS endpoint for the service, run the command:
 
-		kubectl get svc -n a2d2
+	kubectl get svc -n a2d2
 
 The service takes approximately 5 minutes to be ready after it is started, so you may not be able to connect to the service right away.
 
-The raw data store for `a2d2-rosbridge` can be configured in [`a2d2/charts/a2d2-rosbridge/values.yaml`](a2d2/charts/a2d2-rosbridge/values.yaml). The default raw data store is `fsx`.
-
 ### Run Rosbridge data client
 
-To publish data requests and visualize the response data, we recommend [Foxglove Studio](https://foxglove.dev/) visualization tool, which is pre-installed on the desktop client. 
+To publish data requests and visualize the response data, open [Foxglove Studio](https://foxglove.dev/) on the desktop client, and sign-in using your [Foxglove Studio](https://foxglove.dev/) sign-up credentials. Connect Foxglove Studio to your Rosbridge service. In Foxglove Studio, import example layout file [a2d2/config/rosbridge/foxglove/a2d2-ex1.json](a2d2/config/rosbridge/foxglove/a2d2-ex1.json). Publish the data request, and wait for approximately 60 seconds to visualize the response.
 
-First, you must connect Foxglove Studio to your Rosbridge service, and once connected, you are ready to publish data requests. A data request must be published on the pre-defined ROS topic `/mozart/data_request`. An example data request (the quotes are escaped because the `data` field value must be a string) is shown below:
-
-	{
-	    "data": "{\"vehicle_id\": \"a2d2\", \"scene_id\": \"20190401121727\", \"sensor_id\": [\"bus\", \"lidar/front_left\", \"camera/front_left\"], \"start_ts\": 1554115565612291, \"stop_ts\": 1554115765612291, \"ros_topic\": {\"bus\": \"/a2d2/bus\", \"lidar/front_left\": \"/a2d2/lidar/front_left\", \"camera/front_left\": \"/a2d2/camera/front_left\"}, \"data_type\": {\"bus\": \"a2d2_msgs/Bus\", \"lidar/front_left\": \"sensor_msgs/PointCloud2\", \"camera/front_left\": \"sensor_msgs/Image\"}, \"step\": 1000000, \"accept\": \"rosmsg\", \"preview\": false }"
-	}
-
-Notice the `accept` field is set to `rosmsg`, which means the data for each requested sensor is directly published on its mapped ROS topic specified in the `ros_topic` map field. More example data requests can be found under `a2d2/config/rosbridge/mozart/data_request/` folder.
+The data request is published on the pre-defined ROS topic `/mozart/data_request`. Notice the `accept` field is set to `rosmsg`, which means the data for each requested sensor is directly published on its mapped ROS topic specified in the `ros_topic` map field. More examples can be found under `a2d2/config/rosbridge/foxglove/` folder.
 
 You can exercise *control* on a running data request by publishing ROS messages on the pre-defined ROS topic `/mozart/data_request/control`. For example, to *pause* the request, you can publish:
 
@@ -402,7 +354,57 @@ To *stop* the request, you can publish:
 
 When you are done with the Rosbridge data service, stop it by executing the command:
 
-		helm delete a2d2-rosbridge
+	helm uninstall a2d2-rosbridge
+
+### (Optional) Run Kafka data service
+
+Update the CloudFormation stack to set the parameter `DataClientType` to `KafkaAndRosBridge`, and `FsxForLustre` to `enabled`. After CloudFormation update is completed, run the following command in the *working directory*:
+
+	./scripts/setup-dev.sh
+
+To deploy the `a2d2-data-service` Kafka service, run the following command in the *working directory*:
+
+	helm install --debug a2d2-data-service ./a2d2/charts/a2d2-data-service/
+
+To verify that the `a2d2-data-service` deployment is running, run the command:
+
+	kubectl get pods -n a2d2
+
+The data service can be configured to use S3, FSx for Lustre, or EFS (see [Preload A2D2 data from S3 to EFS](#PreloadEFS) ) as the raw sensor data store. The default raw data store is `fsx`, if FSx for Lustre is enabled (see [`FSxForLustre`](#InputParams) parameter), else it is `s3`.
+
+Below is the Helm chart configuration for various raw data store options, with recommended Kubernetes resource requests for pod `memory` and `cpu`. This configuration is used in [`a2d2/charts/a2d2-data-service/values.yaml`](a2d2/charts/a2d2-data-service/values.yaml):
+
+ Data source input | `values.yaml` Configuration |
+| --- | ----------- |
+| `fsx` (default) | `a2d2.requests.memory: "72Gi"` <br> `a2d2.requests.cpu: "8000m"` <br> `configMap.data_store.input: "fsx"`|
+| `efs`  | `a2d2.requests.memory: "32Gi"` <br> `a2d2.requests.cpu: "1000m"` <br> `configMap.data_store.input: "efs"`|
+| `s3`  | `a2d2.requests.memory: "8Gi"` <br> `a2d2.requests.cpu: "1000m"` <br> `configMap.data_store.input: "s3"`|
+
+For matching data staging options in data client request, see `request.accept` field in [data request fields](#RequestFields). 
+
+### (Optional) Run Kafka data client
+
+To visualize the response data, we use [rviz2](https://github.com/ros2/rviz) tool on the graphics desktop. Open a terminal on the desktop, and run `rviz2` (`rviz` for ROS 1). 
+
+In the `rviz2` tool, use **File>Open Config** to select  `/home/ubuntu/amazon-eks-autonomous-driving-data-service/a2d2/config/rviz2/a2d2.rviz` as the `rviz` configuration. You should see `rviz2` tool configured with two windows for visualizing response data: image data on the left, and point cloud data on the right. This `rviz2` configuration is specific to the examples we run below.
+  
+To run the Kafka data client with an example data request, run the following command in the *working directory*:
+
+	python ./a2d2/src/data_client.py --config ./a2d2/config/c-config-ex1.json
+
+After a brief delay, you should be able to *preview* the response data in the `rviz2` tool.
+
+To *preview* data from a different drive scene, execute:
+
+	python ./a2d2/src/data_client.py --config ./a2d2/config/c-config-ex2.json 
+
+ You can set `"preview": false` in the data client config files, and run the above commands again to view the complete response. 
+
+ The data client exits automatically at the end of each successful run. You can use CTRL+C to exit the data client manually.
+
+ When you are done with the Kafka data service, stop it by executing the command:
+
+	helm uninstall a2d2-data-service
 
 ### <a name="PreloadEFS"></a> Preload A2D2 data from S3 to EFS 
 
@@ -518,7 +520,7 @@ All the fields above need to be customized for your dataset. For example, your `
 
 ### Apply tutorial steps to your dataset
 
-Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial), but starting with the step [Setup EKS cluster environment](#setup-eks-cluster-environment). You will need to make following changes to the tutorial steps, so you can use ADDS with `ds1` dataset:
+Next, walk-through the [step-by-step tutorial](#step-by-step-tutorial), but starting with the step [Setup developer environment](#setup-developer-environment). You will need to make following changes to the tutorial steps, so you can use ADDS with `ds1` dataset:
 
 * Instead of `a2d2`, use `ds1`. 
 * In [Build dataset](#build-dataset) step, you will need to  execute your ETL script instead of [scripts/a2d2-etl-steps.sh](scripts/a2d2-etl-steps.sh) so you can launch your workflow to upload your data into S3 and Redshift tables.
@@ -576,28 +578,29 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 
 | Parameter Name | Parameter Description |
 | --- | ----------- |
-| DesktopInstanceType | This is a **required** parameter whereby you select an Amazon EC2 instance type for the desktop running in AWS cloud. Default value is `g3s.xlarge`. |
+| DesktopInstanceType | This is a **required** parameter whereby you select an Amazon EC2 instance type for the desktop running in AWS cloud. Default value is `g4dn.xlarge`. |
 | DesktopEbsVolumeSize | This is a **required** parameter whereby you specify the size of the root EBS volume (default size is 200 GB) on the desktop. Typically, the default size is sufficient.|
 | DesktopEbsVolumeType | This is a **required** parameter whereby you select the [EBS volume type](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) (default is gp3). |
 | DesktopHasPublicIpAddress | This is a **required** parameter whereby you select whether a Public Ip Address be associated with the Desktop.  Default value is `true`.|
 | DesktopRemoteAccessCIDR | This parameter specifies the public IP CIDR range from where you need remote access to your client desktop, e.g. 1.2.3.4/32, or 7.8.0.0/16. |
 | DesktopType | This parameter specifies support for `Graphical` desktop with NICE-DCV server enabled, or `Headless` desktop with NICE-DCV server disabled. Default value is `Graphical`.|
-| DataClientType | This parameter specifies support for `KafkaAndRosBridge`, or `RosBridge` only. Default value is `KafkaAndRosBridge`.|
+| DataClientType | This parameter specifies support for `RosBridge`, and `KafkaAndRosBridge`. Default value is `RosBridge`.|
 | EKSEncryptSecrets | This is a **required** parameter whereby you select if encryption of EKS secrets is `Enabled`. Default value is `Enabled`.|
 | EKSEncryptSecretsKmsKeyArn | This is an *optional* advanced parameter whereby you specify the [AWS KMS](https://aws.amazon.com/kms/) key ARN that is used to encrypt EKS secrets. Leave blank to create a new KMS key.|
-| EKSNodeGroupInstanceType | This is a **required** parameter whereby you select EKS Node group EC2 instance type. Default value is `r5n.8xlarge`.|
 | EKSNodeVolumeSizeGiB | This is a **required** parameter whereby you specify EKS Node group instance EBS volume size. Default value is 200 GiB.|
-| EKSNodeGroupMinSize | This is a **required** parameter whereby you specify EKS Node group minimum size. Default value is 1 node.|
-| EKSNodeGroupMaxSize | This is a **required** parameter whereby you specify EKS Node group maximum size. Default value is 8 nodes.|
-| EKSNodeGroupDesiredSize | This is a **required** parameter whereby you specify EKS Node group initial desired size. Default value is 2 nodes.|
+| EKSSystemNodeGroupCapacityType | This is a **required** parameter whereby you specify EKS system node group capacity type: `SPOT`, or `ON_DEMAND`. Default value is `SPOT`|
+| EKSSystemNodeGroupInstanceType | This is a **required** parameter whereby you specify EKS system node group instance types as a comma separated list. Default value is `"t3a.small,t3a.medium,t3a.large,m5a.large,m7a.large"`|
+| EKSWorkNodeGroupCapacityType | This is a **required** parameter whereby you specify EKS work node group capacity type: `SPOT`, or `ON_DEMAND`. Default value is `SPOT`|
+| EKSWorkNodeGroupInstanceType | This is a **required** parameter whereby you specify EKS work node group instance types as a comma separated list. Default value is `"m5a.8xlarge,m5.8xlarge,m5n.8xlarge,m7a.8xlarge,r5n.8xlarge"`|
+| EKSWorkNodeGroupMaxSize | This is a **required** parameter whereby you specify EKS work node group maximum size. Default value is 16 nodes. Cluster auto-scaler scales this node group as needed.|
 | FargateComputeType | This is a **required** parameter whereby you specify Fargate compute environment type. Allowed values are `FARGATE_SPOT` and `FARGATE`. Default value is `FARGATE_SPOT`. |
 | FargateComputeMax | This is a **required** parameter whereby you specify maximum size of Fargate compute environment in vCpus. Default value is `1024`.|
-| FSxForLustre |  This is a **required** parameter whereby you specify whether FSx for Lustre is `enabled`, or `disabled`. Default value is `enabled`.|
+| FSxForLustre |  This is a **required** parameter whereby you specify whether FSx for Lustre is `enabled`, or `disabled`. Default value is `disabled`.|
 | FSxStorageCapacityGiB |  This is a **required** parameter whereby you specify the FSx Storage capacity, which must be in multiples of `2400 GiB`. Default value is `7200 GiB`.|
 | FSxS3ImportPrefix | This is an *optional* advanced parameter whereby you specify FSx S3 bucket path prefix for importing data from S3 bucket. Leave blank to import the complete bucket.|
 | KeyPairName | This is a **required** parameter whereby you select the Amazon EC2 key pair name used for SSH access to the desktop. You must have access to the selected key pair's private key to connect to your desktop. |
-| KubectlVersion | This is a **required** parameter whereby you specify EKS `kubectl` version. Default value is `1.21.2/2021-07-05`. |
-| KubernetesVersion | This is a **required** parameter whereby you specify EKS cluster version. Default value is `1.21`. |
+| KubectlVersion | This is a **required** parameter whereby you specify EKS `kubectl` version. Default value is `1.28.3/2023-11-14`. |
+| KubernetesVersion | This is a **required** parameter whereby you specify EKS cluster version. Default value is `1.28`. |
 | MSKBrokerNodeType | This is a **required** parameter whereby you specify the type of node to be provisioned for AWS MSK Broker. |
 | MSKNumberOfNodes | This is a **required** parameter whereby you specify the number of MSK Broker nodes, which must be >= 2. |
 | PrivateSubnet1CIDR | This is a **required** parameter whereby you specify the Private Subnet1 CIDR in Vpc CIDR. Default value is `172.30.64.0/18`.|
@@ -612,7 +615,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | RedshiftDatabaseName | This is a **required** parameter whereby you specify the name of the Redshift database. Default value is `mozart`.|
 | RedshiftMasterUsername | This is a **required** parameter whereby you specify the name Redshift Master user name. Default value is `admin`.|
 | RedshiftMasterUserPassword | This is a **required** parameter whereby you specify the name Redshift Master user password.|
-| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are `melodic` on Ubuntu Bionic,  `noetic`  on Ubuntu Focal, and `humble` on Ubuntu Jammy. Default value is `noetic`.|
+| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are `melodic` on Ubuntu Bionic,  `noetic`  on Ubuntu Focal, and `humble` on Ubuntu Jammy. Default value is `humble`.|
 | S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
 | UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|
 | VpcCIDR | This is a **required** parameter whereby you specify the [Amazon VPC](https://aws.amazon.com/vpc/?vpc-blogs.sort-by=item.additionalFields.createdDate&vpc-blogs.sort-order=desc) CIDR for the VPC created in the stack. Default value is 172.30.0.0/16. If you change this value, all the subnet parameters above may need to be set, as well.|

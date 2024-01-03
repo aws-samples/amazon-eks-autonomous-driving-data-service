@@ -23,7 +23,7 @@ Parameters:
   
   DataClientType:
     Description: Kafka and RosBridge support, or RosBridge support only.
-    Default: "KafkaAndRosBridge"
+    Default: "RosBridge"
     Type: String
     AllowedValues:
       - "KafkaAndRosBridge"
@@ -129,7 +129,7 @@ Parameters:
       the FSx for Lustre file system automatically imports data from s3://S3bucket/FSxS3ImportPrefix. 
       See S3Bucket and FSxS3ImportPrefix parameters.
     Type: String
-    Default: 'enabled'
+    Default: 'disabled'
     AllowedValues:
       - 'enabled'
       - 'disabled'
@@ -169,37 +169,38 @@ Parameters:
     MinValue: 200
     Default: 200
   
-  EKSNodeGroupMinSize:
-    Description: EKS Node group minimum size
-    Type: Number
-    MinValue: 0
-    Default: 0
-  
-  EKSNodeGroupMaxSize:
-    Description: EKS Node group maximum size
+  EKSWorkNodeGroupMaxSize:
+    Description: EKS work node group maximum size
     Type: Number
     MinValue: 2
-    Default: 10
+    Default: 16
   
-  EKSNodeGroupDesiredSize:
-    Description: EKS Node group desired size
-    Type: Number
-    MinValue: 0
-    Default: 0
+  EKSSystemNodeGroupInstanceTypes:
+    Description: EKS system node group instance types
+    Type: CommaDelimitedList
+    Default: "t3a.small,t3a.medium,t3a.large,m5a.large,m7a.large"
 
-  EKSNodeGroupInstanceType:
-    Description: EKS Node group instance type
-    Type: String
-    Default: "m5n.8xlarge"
-    AllowedValues:
-    - m5n.2xlarge
-    - m5n.4xlarge
-    - m5n.8xlarge
-    - r5n.8xlarge
-    - r5n.12xlarge
-    - r5n.16xlarge
-    - r5n.24xlarge
+  EKSWorkNodeGroupInstanceTypes:
+    Description: EKS work node group instance types
+    Type: CommaDelimitedList
+    Default: "m5a.8xlarge,m5.8xlarge,m5n.8xlarge,m7a.8xlarge,r5n.8xlarge"
   
+  EKSSystemNodeGroupCapacityType:
+    Description: EKS system node group capacity type
+    Type: String
+    Default: "SPOT"
+    AllowedValues:
+    - "ON_DEMAND"
+    - "SPOT"
+
+  EKSWorkNodeGroupCapacityType:
+    Description: EKS work node group capacity type
+    Type: String
+    Default: "SPOT"
+    AllowedValues:
+    - "ON_DEMAND"
+    - "SPOT"
+   
   UbuntuAMI:
     Description: >-
       Advanced option to override Ubuntu AMI. 
@@ -218,16 +219,11 @@ Parameters:
       - m5n.4xlarge
       - g3s.xlarge
       - g3.4xlarge
-      - g3.8xlarge
-      - g3.16xlarge
       - g4dn.xlarge
       - g4dn.2xlarge
       - g4dn.4xlarge
-      - g4dn.8xlarge
-      - g4dn.12xlarge
-      - g4dn.16xlarge
      
-    ConstraintDescription: Must be a valid GPU EC2 instance type.
+    ConstraintDescription: Must be a valid EC2 instance type.
   
   DesktopEbsVolumeSize:
     Description: Desktop EBS volume size (GiB) 
@@ -260,7 +256,7 @@ Parameters:
     Description: >-
      ROS version. For ROS1, use 'noetic'. For ROS2, use 'humble'. 
     Type: String
-    Default: "noetic"
+    Default: "humble"
     AllowedValues:
      - "noetic"
      - "humble"
@@ -312,25 +308,25 @@ Mappings:
       AMI: ami-02acd68454c0247e4
   humble:
     us-east-1:
-      MI: ami-0be745ab75ba5e45c
+      AMI: ami-0c460fdf6a8a1edef
     us-east-2:
-      AMI: ami-0ddb5a74386eb6091
+      AMI: ami-0bddc40b31973ff95
     us-west-2:
-      AMI: ami-02663e342a0103113
+      AMI: ami-058168290d30b9c52
     eu-west-1:
-      AMI: ami-005e674520b068aa7
+      AMI: ami-0a0aadde3561fdc1e
     eu-central-1:
-      AMI: ami-089da6dd4ed5bda02
+      AMI: ami-04bd4f5e1a831e002
     ap-southeast-1:
-      AMI: ami-01a6dc4321ec7ed82
+      AMI: ami-0fd4144f52678fe37
     ap-southeast-2:
-      AMI: ami-0bb771f2707180183
+      AMI: ami-0ac438f9a63fdd525
     ap-south-1:
-      AMI: ami-00496052d86ee5074
+      AMI: ami-05205cb302b6dca6f
     ap-northeast-1:
-      AMI: ami-0bb96692b64ca68a5
+      AMI: ami-096d2286904664854
     ap-northeast-2:
-      AMI: ami-0fd493d879fea4208
+      AMI: ami-00324b863a508e247
 
 Resources:
   Vpc:
@@ -1149,17 +1145,17 @@ Resources:
     Type: AWS::EKS::Nodegroup
     Properties: 
       AmiType: "AL2_x86_64"
+      CapacityType: !Ref EKSSystemNodeGroupCapacityType
       ClusterName: !Ref EksControlPlane
       DiskSize: 40
-      InstanceTypes: 
-      - m5a.large
+      InstanceTypes: !Ref EKSSystemNodeGroupInstanceTypes
       NodegroupName: 'system-nodegroup'
       NodeRole: !GetAtt EksNodeRole.Arn
       RemoteAccess:
         Ec2SshKey: !Ref KeyPairName
       ScalingConfig: 
           DesiredSize: 2
-          MaxSize: 2
+          MaxSize: 16
           MinSize: 2
       Labels:
         nodegroup: 'system-nodegroup'
@@ -1168,22 +1164,22 @@ Resources:
       - Ref: PrivateSubnet2
       - Ref: PrivateSubnet3
 
-  EKSNodeGroupPrivate:
+  EKSNodeGroupWork:
     Type: AWS::EKS::Nodegroup
     Properties: 
       AmiType: "AL2_x86_64"
+      CapacityType: !Ref EKSWorkNodeGroupCapacityType
       ClusterName: !Ref EksControlPlane
       DiskSize: !Ref EKSNodeVolumeSizeGiB
-      InstanceTypes: 
-      - !Ref EKSNodeGroupInstanceType
-      NodegroupName: 'private-nodegroup'
+      InstanceTypes: !Ref EKSWorkNodeGroupInstanceTypes
+      NodegroupName: 'work-nodegroup'
       NodeRole: !GetAtt EksNodeRole.Arn
       RemoteAccess:
         Ec2SshKey: !Ref KeyPairName
       ScalingConfig: 
-          DesiredSize: !Ref EKSNodeGroupDesiredSize
-          MaxSize: !Ref EKSNodeGroupMaxSize
-          MinSize: !Ref EKSNodeGroupMinSize
+          DesiredSize: 0
+          MaxSize: !Ref EKSWorkNodeGroupMaxSize
+          MinSize: 0
       Labels:
         nodegroup: 'mozart-data-service'
       Subnets: 
@@ -1243,6 +1239,7 @@ Resources:
     DependsOn: [ PrivateSubnet1RouteAssociation, VpcSecurityGroupIngressFSx1, VpcSecurityGroupIngressFSx2]
     Properties: 
       FileSystemType: 'LUSTRE'
+      FileSystemTypeVersion: "2.15"
       LustreConfiguration: 
         ImportPath: !Sub 's3://${S3Bucket}/${FSxS3ImportPrefix}'
         DeploymentType: SCRATCH_2
@@ -2185,8 +2182,8 @@ Resources:
               dpkg -l | grep linux | awk -F' ' '{print $2}' > /tmp/dpkg.out
               for pkg in `cat /tmp/dpkg.out`; do apt-mark hold $pkg; done
 
-              CUDA=11.8
-              CUDA_DASH=11-8
+              CUDA=12.3
+              CUDA_DASH=${CUDA//\./-}
 
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
               [[ ! -z $(lspci -v | grep NVIDIA) ]] && \
@@ -2269,10 +2266,10 @@ Resources:
               fi
 
               ROS=${RosVersion}
-              if [[ $VERSION_ID == "20.04" ]]
+              if [[ $VERSION_ID == 20.04* ]]
               then
                 [[ $ROS != 'noetic' ]] && echo "RosVersion must be 'noetic' for Ubuntu $VERSION" && exit 1
-                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+                add-apt-repository -y  "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu focal main"
                 
                 # setup software repo for ros
                 sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' 
@@ -2306,10 +2303,10 @@ Resources:
                   reboot
                 fi
 
-              elif [[ $VERSION_ID == "22.04" ]]
+              elif [[ $VERSION_ID == 22.04* ]]
               then   
                 [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
-                bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu jammy main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+                add-apt-repository -y  "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu jammy main"
                 
                 add-apt-repository universe
                 curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
@@ -2751,15 +2748,13 @@ Outputs:
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "Vpc" ] ]
   FSxId:
-    Condition: FSxForLustreEnabled
     Description: FSx for Luster file system id
-    Value: !Ref FSxFileSystem
+    Value: !If [ FSxForLustreEnabled, !Ref FSxFileSystem, "null" ]
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "FSxId" ] ]
   FSxMountName:
-    Condition: FSxForLustreEnabled
     Description: FSx for Luster mount name
-    Value: !Sub "${FSxFileSystem.LustreMountName}"
+    Value: !If [ FSxForLustreEnabled, !Sub "${FSxFileSystem.LustreMountName}", "null" ] 
     Export:
       Name: !Join [ "-", [ !Ref "AWS::StackName", "FSxMountName" ] ]
   EFSId:
