@@ -166,15 +166,15 @@ Resources:
               dpkg -l | grep linux | awk -F' ' '{print $2}' > /tmp/dpkg.out
               for pkg in `cat /tmp/dpkg.out`; do apt-mark hold $pkg; done
 
-              CUDA=12.3
+              CUDA=12.4
               CUDA_DASH=${CUDA//\./-}
 
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
               [[ ! -z $(lspci -v | grep NVIDIA) ]] && \
               [[ ! -x "$(command -v nvidia-smi)" ]] && \
               apt-get -y install linux-headers-$(uname -r) && \
-              wget https://developer.download.nvidia.com/compute/cuda/repos/$distro/$arch/cuda-keyring_1.0-1_all.deb && \
-              dpkg -i cuda-keyring_1.0-1_all.deb && \
+              wget https://developer.download.nvidia.com/compute/cuda/repos/$distro/$arch/cuda-keyring_1.1-1_all.deb && \
+              dpkg -i cuda-keyring_1.1-1_all.deb && \
               apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y purge libnvidia-* && apt-get -y autoremove && \
               apt-get -y install cuda-${CUDA_DASH} && \
               echo "export PATH=/usr/local/cuda-${CUDA}/bin:$PATH" >> /home/ubuntu/.bashrc && \
@@ -274,10 +274,10 @@ Resources:
                   systemctl set-default graphical.target
                   systemctl isolate graphical.target
 
-                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
-                  tar -xvzf nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
-                  cd nice-dcv-2020.2-9662-ubuntu2004-x86_64
-                  apt-get install -y ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-18131-ubuntu2004-x86_64.tgz
+                  tar -xvzf nice-dcv-2024.0-18131-ubuntu2004-x86_64.tgz
+                  cd nice-dcv-2024.0-18131-ubuntu2004-x86_64
+                  apt-get -y install ./nice-dcv-server_2024.0.18131-1_amd64.ubuntu2004.deb
                 elif [[ $VERSION == 22.04* ]]
                 then   
                   [[ $ROS != 'humble' ]] && echo "RosVersion must be 'humble' for Ubuntu $VERSION" && exit 1
@@ -305,10 +305,10 @@ Resources:
                   systemctl set-default graphical.target
                   systemctl isolate graphical.target
 
-                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2022.1/Servers/nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
-                  tar -xvzf nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
-                  cd nice-dcv-2022.1-13300-ubuntu2204-x86_64
-                  apt-get -y install ./nice-dcv-server_2022.1.13300-1_amd64.ubuntu2204.deb/
+                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-18131-ubuntu2204-x86_64.tgz
+                  tar -xvzf nice-dcv-2024.0-18131-ubuntu2204-x86_64.tgz
+                  cd nice-dcv-2024.0-18131-ubuntu2204-x86_64
+                  apt-get -y install ./nice-dcv-server_2024.0.18131-1_amd64.ubuntu2204.deb
                 else
                   echo "Ubuntu $VERSION is not supported; must be one of 20.04, or 22.04"
                   exit 1

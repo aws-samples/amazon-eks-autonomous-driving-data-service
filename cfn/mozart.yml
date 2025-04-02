@@ -154,14 +154,14 @@ Parameters:
   KubernetesVersion:
     Description: Kubernetes Version
     Type: String
-    AllowedValues: [ "1.28" ]
-    Default: "1.28"
+    AllowedValues: [ "1.32" ]
+    Default: "1.32"
 
   KubectlVersion:
     Description: Kubectl Version
     Type: String
-    AllowedValues: [ "1.28.3/2023-11-14" ]
-    Default: "1.28.3/2023-11-14"
+    AllowedValues: [ "1.32.0/2024-12-20" ]
+    Default: "1.32.0/2024-12-20"
   
   EKSNodeVolumeSizeGiB:
     Description: EKS Node volume size GiB
@@ -308,25 +308,25 @@ Mappings:
       AMI: ami-02acd68454c0247e4
   humble:
     us-east-1:
-      AMI: ami-0c460fdf6a8a1edef
+      AMI: ami-005fc0f236362e99f
     us-east-2:
-      AMI: ami-0bddc40b31973ff95
+      AMI: ami-00eb69d236edcfaf8
     us-west-2:
-      AMI: ami-058168290d30b9c52
+      AMI: ami-0b8c6b923777519db
     eu-west-1:
-      AMI: ami-0a0aadde3561fdc1e
+      AMI: ami-0a422d70f727fe93e
     eu-central-1:
-      AMI: ami-04bd4f5e1a831e002
+      AMI: ami-0745b7d4092315796
     ap-southeast-1:
-      AMI: ami-0fd4144f52678fe37
+      AMI: ami-03fa85deedfcac80b
     ap-southeast-2:
-      AMI: ami-0ac438f9a63fdd525
+      AMI: ami-040e71e7b8391cae4
     ap-south-1:
-      AMI: ami-05205cb302b6dca6f
+      AMI: ami-09b0a86a2c84101e1
     ap-northeast-1:
-      AMI: ami-096d2286904664854
+      AMI: ami-0ac6b9b2908f3e20d
     ap-northeast-2:
-      AMI: ami-00324b863a508e247
+      AMI: ami-042e76978adeb8c48
 
 Resources:
   Vpc:
@@ -2182,15 +2182,15 @@ Resources:
               dpkg -l | grep linux | awk -F' ' '{print $2}' > /tmp/dpkg.out
               for pkg in `cat /tmp/dpkg.out`; do apt-mark hold $pkg; done
 
-              CUDA=12.3
+              CUDA=12.4
               CUDA_DASH=${CUDA//\./-}
 
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
               [[ ! -z $(lspci -v | grep NVIDIA) ]] && \
               [[ ! -x "$(command -v nvidia-smi)" ]] && \
               apt-get -y install linux-headers-$(uname -r) && \
-              wget https://developer.download.nvidia.com/compute/cuda/repos/$distro/$arch/cuda-keyring_1.0-1_all.deb && \
-              dpkg -i cuda-keyring_1.0-1_all.deb && \
+              wget https://developer.download.nvidia.com/compute/cuda/repos/$distro/$arch/cuda-keyring_1.1-1_all.deb && \
+              dpkg -i cuda-keyring_1.1-1_all.deb && \
               apt-get update && apt-get -y purge cuda && apt-get -y purge nvidia-* && apt-get -y purge libnvidia-* && apt-get -y autoremove && \
               apt-get -y install cuda-${CUDA_DASH} && \
               echo "export PATH=/usr/local/cuda-${CUDA}/bin:$PATH" >> /home/ubuntu/.bashrc && \
@@ -2296,10 +2296,10 @@ Resources:
                   systemctl set-default graphical.target
                   systemctl isolate graphical.target
 
-                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2020.2/Servers/nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
-                  tar -xvzf nice-dcv-2020.2-9662-ubuntu2004-x86_64.tgz
-                  cd nice-dcv-2020.2-9662-ubuntu2004-x86_64
-                  apt-get -y install ./nice-dcv-server_2020.2.9662-1_amd64.ubuntu2004.deb/
+                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-18131-ubuntu2004-x86_64.tgz
+                  tar -xvzf nice-dcv-2024.0-18131-ubuntu2004-x86_64.tgz
+                  cd nice-dcv-2024.0-18131-ubuntu2004-x86_64
+                  apt-get -y install ./nice-dcv-server_2024.0.18131-1_amd64.ubuntu2004.deb
                   reboot
                 fi
 
@@ -2333,10 +2333,10 @@ Resources:
                   systemctl set-default graphical.target
                   systemctl isolate graphical.target
 
-                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2022.1/Servers/nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
-                  tar -xvzf nice-dcv-2022.1-13300-ubuntu2204-x86_64.tgz
-                  cd nice-dcv-2022.1-13300-ubuntu2204-x86_64
-                  apt-get -y install ./nice-dcv-server_2022.1.13300-1_amd64.ubuntu2204.deb/
+                  wget https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-18131-ubuntu2204-x86_64.tgz
+                  tar -xvzf nice-dcv-2024.0-18131-ubuntu2204-x86_64.tgz
+                  cd nice-dcv-2024.0-18131-ubuntu2204-x86_64
+                  apt-get -y install ./nice-dcv-server_2024.0.18131-1_amd64.ubuntu2204.deb
                   reboot
                 fi
 
