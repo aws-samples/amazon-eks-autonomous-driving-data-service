@@ -53,7 +53,7 @@ def main(config):
     job_name=f"a2d2_metadata_etl-{str(time.time()).replace('.','')}"
 
     job = glue.create_job(Name=job_name, Role=config["glue_role"],
-            GlueVersion='2.0',
+            GlueVersion='4.0',
             WorkerType='G.2X',
             NumberOfWorkers=11,
             Command={'Name': 'glueetl',
@@ -69,7 +69,8 @@ def main(config):
     print(str(status))
 
     run_state = status['JobRun']['JobRunState']
-    while run_state == "RUNNING" or run_state == "STARTING" or run_state == "STOPPING" or run_state == "STOPPED":
+    while run_state == "RUNNING" or run_state == "WAITING" or \
+        run_state == "STARTING" or run_state == "STOPPING" or run_state == "STOPPED":
         print(f"Glue Job is {run_state}")
         time.sleep(30)
         status = glue.get_job_run(JobName=job['Name'], RunId=job_run['JobRunId'])
