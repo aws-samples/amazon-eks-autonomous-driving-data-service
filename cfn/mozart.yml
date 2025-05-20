@@ -217,8 +217,6 @@ Parameters:
       - m5n.xlarge
       - m5n.2xlarge
       - m5n.4xlarge
-      - g3s.xlarge
-      - g3.4xlarge
       - g4dn.xlarge
       - g4dn.2xlarge
       - g4dn.4xlarge
@@ -308,25 +306,25 @@ Mappings:
       AMI: ami-02acd68454c0247e4
   humble:
     us-east-1:
-      AMI: ami-005fc0f236362e99f
+      AMI: ami-0f9de6e2d2f067fca
     us-east-2:
-      AMI: ami-00eb69d236edcfaf8
+      AMI: ami-0c3b809fcf2445b6a
     us-west-2:
-      AMI: ami-0b8c6b923777519db
+      AMI: ami-03f8acd418785369b
     eu-west-1:
-      AMI: ami-0a422d70f727fe93e
+      AMI: ami-0f0c3baa60262d5b9
     eu-central-1:
-      AMI: ami-0745b7d4092315796
+      AMI: ami-04a5bacc58328233d
     ap-southeast-1:
-      AMI: ami-03fa85deedfcac80b
+      AMI: ami-0c1907b6d738188e5
     ap-southeast-2:
-      AMI: ami-040e71e7b8391cae4
+      AMI: ami-0a2e29e3b4fc39212
     ap-south-1:
-      AMI: ami-09b0a86a2c84101e1
+      AMI: ami-06b6e5225d1db5f46
     ap-northeast-1:
-      AMI: ami-0ac6b9b2908f3e20d
+      AMI: ami-0f415cc2783de6675
     ap-northeast-2:
-      AMI: ami-042e76978adeb8c48
+      AMI: ami-05a7f3469a7653972
 
 Resources:
   Vpc:
@@ -2182,7 +2180,7 @@ Resources:
               dpkg -l | grep linux | awk -F' ' '{print $2}' > /tmp/dpkg.out
               for pkg in `cat /tmp/dpkg.out`; do apt-mark hold $pkg; done
 
-              CUDA=12.4
+              CUDA=12.6
               CUDA_DASH=${CUDA//\./-}
 
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed

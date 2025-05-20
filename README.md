@@ -615,7 +615,7 @@ Below, we describe the AWS CloudFormation [template](cfn/mozart.yml) input param
 | RedshiftDatabaseName | This is a **required** parameter whereby you specify the name of the Redshift database. Default value is `mozart`.|
 | RedshiftMasterUsername | This is a **required** parameter whereby you specify the name Redshift Master user name. Default value is `admin`.|
 | RedshiftMasterUserPassword | This is a **required** parameter whereby you specify the name Redshift Master user password.|
-| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are `melodic` on Ubuntu Bionic,  `noetic`  on Ubuntu Focal, and `humble` on Ubuntu Jammy. Default value is `humble`.|
+| RosVersion | This is a **required** parameter whereby you specify the version of [ROS](https://ros.org/). The supported versions are `noetic`  on Ubuntu Focal, and `humble` on Ubuntu Jammy. Default value is `humble`.|
 | S3Bucket | This is a **required** parameter whereby you specify the name of the Amazon S3 bucket to store your data. |
-| UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (18.04 or 20.04).|
+| UbuntuAMI | This is an *optional* advanced parameter whereby you specify Ubuntu AMI (20.04 or 22.04).|
 | VpcCIDR | This is a **required** parameter whereby you specify the [Amazon VPC](https://aws.amazon.com/vpc/?vpc-blogs.sort-by=item.additionalFields.createdDate&vpc-blogs.sort-order=desc) CIDR for the VPC created in the stack. Default value is 172.30.0.0/16. If you change this value, all the subnet parameters above may need to be set, as well.|

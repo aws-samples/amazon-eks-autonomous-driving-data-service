@@ -21,8 +21,6 @@ Parameters:
       - m5n.xlarge
       - m5n.2xlarge
       - m5n.4xlarge
-      - g3s.xlarge
-      - g3.4xlarge
       - g4dn.xlarge
       - g4dn.2xlarge
       - g4dn.4xlarge
@@ -166,7 +164,7 @@ Resources:
               dpkg -l | grep linux | awk -F' ' '{print $2}' > /tmp/dpkg.out
               for pkg in `cat /tmp/dpkg.out`; do apt-mark hold $pkg; done
 
-              CUDA=12.4
+              CUDA=12.6
               CUDA_DASH=${CUDA//\./-}
 
               # check if we have a GPU and if Nvidia drivers and CUDA need to be installed
